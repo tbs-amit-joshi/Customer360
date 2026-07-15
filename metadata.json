@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: Remix: Remix: Remix: Tech CRM",
+  "description": "Enterprise-grade, clean, minimal CRM application for Shopify merchants to manage leads, complaints, customer summaries, campaigns, and more.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
