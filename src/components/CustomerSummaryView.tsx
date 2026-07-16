@@ -3,8 +3,8 @@ import {
   Search, Filter, Download, User, ArrowRight, DollarSign, 
   X, CheckSquare, Settings, Check, CreditCard, ShoppingBag, 
   Ticket, Gift, HelpCircle, ExternalLink, ChevronDown, ChevronRight,
-  Mail, Send, ChevronLeft, Edit, Eye, ChevronUp, RefreshCw, Users,
-  Calendar, Sparkles, TrendingUp, LayoutGrid, Heart
+  Mail, ChevronLeft, Edit, Eye, ChevronUp, RefreshCw, Users,
+  Calendar, Sparkles, TrendingUp, LayoutGrid
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -20,10 +20,14 @@ import {
   Area,
   CartesianGrid
 } from 'recharts';
-import { Customer, CustomerSegment, LeadStatus, CustomerOrder, CustomerRefund, CustomerDiscount, Lead, Complaint } from '../types';
+import { Customer, CustomerSegment, LeadStatus, CustomerOrder, CustomerRefund, CustomerDiscount,CustomerAbandonedCheckout, Lead, Complaint } from '../types';
 import OrderProductBreakdown from './OrderProductBreakdown';
+import CustomerDataLoader from './CustomerDataLoader';
 import { formatCurrencyAmount } from '../utils/currency';
+import { fetchAbandonedCheckoutsByCustomerId, fetchCustomerRefundsByCustomerId, fetchCustomerDiscountsByCustomerId } from '../api/customerSync';
+import { getStatusBadgeMeta, normalizeStatusCode } from '../utils/orderStatus';
 import { ResizeHandle, useResizableColumns, type ResizableColumnConfig } from './tableResize';
+import { exportCustomer360Customers, type CustomerSyncOptions } from '../api/customerSync';
 
 const CUSTOMER_GRID_COLUMNS: ResizableColumnConfig[] = [
   { id: 'expander', width: 38, minWidth: 32, maxWidth: 80 },
@@ -61,6 +65,203 @@ const DETAILED_ORDER_GRID_COLUMNS: ResizableColumnConfig[] = [
   { id: 'totalAmount', width: 92, minWidth: 72, maxWidth: 200 }
 ];
 
+const COUNTRY_OPTIONS = [
+  'Afghanistan',
+  'Albania',
+  'Algeria',
+  'Andorra',
+  'Angola',
+  'Antigua and Barbuda',
+  'Argentina',
+  'Armenia',
+  'Australia',
+  'Austria',
+  'Azerbaijan',
+  'Bahamas',
+  'Bahrain',
+  'Bangladesh',
+  'Barbados',
+  'Belarus',
+  'Belgium',
+  'Belize',
+  'Benin',
+  'Bhutan',
+  'Bolivia',
+  'Bosnia and Herzegovina',
+  'Botswana',
+  'Brazil',
+  'Brunei',
+  'Bulgaria',
+  'Burkina Faso',
+  'Burundi',
+  'Cabo Verde',
+  'Cambodia',
+  'Cameroon',
+  'Canada',
+  'Central African Republic',
+  'Chad',
+  'Chile',
+  'China',
+  'Colombia',
+  'Comoros',
+  'Congo',
+  'Costa Rica',
+  "Cote d'Ivoire",
+  'Croatia',
+  'Cuba',
+  'Cyprus',
+  'Czech Republic',
+  'Denmark',
+  'Djibouti',
+  'Dominica',
+  'Dominican Republic',
+  'Ecuador',
+  'Egypt',
+  'El Salvador',
+  'Equatorial Guinea',
+  'Eritrea',
+  'Estonia',
+  'Eswatini',
+  'Ethiopia',
+  'Fiji',
+  'Finland',
+  'France',
+  'Gabon',
+  'Gambia',
+  'Georgia',
+  'Germany',
+  'Ghana',
+  'Greece',
+  'Grenada',
+  'Guatemala',
+  'Guinea',
+  'Guinea-Bissau',
+  'Guyana',
+  'Haiti',
+  'Honduras',
+  'Hungary',
+  'Iceland',
+  'India',
+  'Indonesia',
+  'Iran',
+  'Iraq',
+  'Ireland',
+  'Israel',
+  'Italy',
+  'Jamaica',
+  'Japan',
+  'Jordan',
+  'Kazakhstan',
+  'Kenya',
+  'Kiribati',
+  'Kuwait',
+  'Kyrgyzstan',
+  'Laos',
+  'Latvia',
+  'Lebanon',
+  'Lesotho',
+  'Liberia',
+  'Libya',
+  'Liechtenstein',
+  'Lithuania',
+  'Luxembourg',
+  'Madagascar',
+  'Malawi',
+  'Malaysia',
+  'Maldives',
+  'Mali',
+  'Malta',
+  'Marshall Islands',
+  'Mauritania',
+  'Mauritius',
+  'Mexico',
+  'Micronesia',
+  'Moldova',
+  'Monaco',
+  'Mongolia',
+  'Montenegro',
+  'Morocco',
+  'Mozambique',
+  'Myanmar',
+  'Namibia',
+  'Nauru',
+  'Nepal',
+  'Netherlands',
+  'New Zealand',
+  'Nicaragua',
+  'Niger',
+  'Nigeria',
+  'North Korea',
+  'North Macedonia',
+  'Norway',
+  'Oman',
+  'Pakistan',
+  'Palau',
+  'Panama',
+  'Papua New Guinea',
+  'Paraguay',
+  'Peru',
+  'Philippines',
+  'Poland',
+  'Portugal',
+  'Qatar',
+  'Romania',
+  'Russia',
+  'Rwanda',
+  'Saint Kitts and Nevis',
+  'Saint Lucia',
+  'Saint Vincent and the Grenadines',
+  'Samoa',
+  'San Marino',
+  'Sao Tome and Principe',
+  'Saudi Arabia',
+  'Senegal',
+  'Serbia',
+  'Seychelles',
+  'Sierra Leone',
+  'Singapore',
+  'Slovakia',
+  'Slovenia',
+  'Solomon Islands',
+  'Somalia',
+  'South Africa',
+  'South Korea',
+  'South Sudan',
+  'Spain',
+  'Sri Lanka',
+  'Sudan',
+  'Suriname',
+  'Sweden',
+  'Switzerland',
+  'Syria',
+  'Taiwan',
+  'Tajikistan',
+  'Tanzania',
+  'Thailand',
+  'Timor-Leste',
+  'Togo',
+  'Tonga',
+  'Trinidad and Tobago',
+  'Tunisia',
+  'Turkey',
+  'Turkmenistan',
+  'Tuvalu',
+  'Uganda',
+  'Ukraine',
+  'United Arab Emirates',
+  'United Kingdom',
+  'United States',
+  'Uruguay',
+  'Uzbekistan',
+  'Vanuatu',
+  'Vatican City',
+  'Venezuela',
+  'Vietnam',
+  'Yemen',
+  'Zambia',
+  'Zimbabwe'
+] as const;
+
 interface CustomerSummaryViewProps {
   customers: Customer[];
   leads?: Lead[];
@@ -72,7 +273,77 @@ interface CustomerSummaryViewProps {
   onClearSelectedCustomerName: () => void;
   isLoadingCustomers?: boolean;
   customerLoadError?: string | null;
-  onRefreshCustomers: () => void;
+  onRefreshCustomers: (customerType: 'All' | CustomerSegment) => void;
+  onCustomerQueryChange?: (filters: Pick<
+    CustomerSyncOptions,
+    | 'customerType'
+    | 'customerNameOrId'
+    | 'emailOrPhone'
+    | 'country'
+    | 'lifetimeSpend'
+    | 'orderId'
+    | 'orderDateFrom'
+    | 'orderDateTo'
+    | 'productName'
+    | 'productVariant'
+  >) => void;
+}
+
+function formatIndianInteger(value: string): string {
+  const digits = value.replace(/\D/g, '');
+
+  if (!digits) {
+    return '';
+  }
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  const lastThree = digits.slice(-3);
+  const leadingDigits = digits.slice(0, -3);
+  const formattedLeading = leadingDigits.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return `${formattedLeading},${lastThree}`;
+}
+
+function formatSpendFilterValue(value: string): string {
+  return formatIndianInteger(value);
+}
+
+function parseSpendFilterValue(value: string): number {
+  const cleaned = value.replace(/,/g, '').trim();
+  return cleaned ? Number(cleaned) : NaN;
+}
+
+function formatCustomerDisplayName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function renderStatusBadge(
+  category: 'order' | 'payment' | 'delivery',
+  value?: string | null,
+  className = 'text-[11px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider border'
+) {
+  const trimmedValue = value?.trim() || '';
+  if (!trimmedValue) {
+    return <span className="text-[11px] text-text-secondary font-medium">-</span>;
+  }
+
+  const meta = getStatusBadgeMeta(category, trimmedValue);
+  if (!meta) {
+    return null;
+  }
+
+  return <span className={`${className} ${meta.className}`}>{meta.label}</span>;
 }
 
 export default function CustomerSummaryView({
@@ -86,12 +357,25 @@ export default function CustomerSummaryView({
   onClearSelectedCustomerName,
   isLoadingCustomers = false,
   customerLoadError = null,
-  onRefreshCustomers
+  onRefreshCustomers,
+  onCustomerQueryChange
 }: CustomerSummaryViewProps) {
   // Navigation & Details States
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [popupCustomer, setPopupCustomer] = useState<Customer | null>(null);
-  const [popupActiveTab, setPopupActiveTab] = useState<'wishlist' | 'abandoned' | 'refunds' | 'discounts'>('wishlist');
+  const [popupActiveTab, setPopupActiveTab] = useState<'abandoned' | 'refunds' | 'discounts'>('abandoned');
+  const [abandonedCheckoutRows, setAbandonedCheckoutRows] = useState<CustomerAbandonedCheckout[]>([]);
+  const [isAbandonedCheckoutsLoading, setIsAbandonedCheckoutsLoading] = useState(false);
+  const [abandonedCheckoutsError, setAbandonedCheckoutsError] = useState<string | null>(null);
+  const [abandonedCheckoutPage, setAbandonedCheckoutPage] = useState(1);
+  const [refundRows, setRefundRows] = useState<CustomerRefund[]>([]);
+  const [isRefundRowsLoading, setIsRefundRowsLoading] = useState(false);
+  const [refundRowsError, setRefundRowsError] = useState<string | null>(null);
+  const [refundPage, setRefundPage] = useState(1);
+  const [discountRows, setDiscountRows] = useState<CustomerDiscount[]>([]);
+  const [isDiscountRowsLoading, setIsDiscountRowsLoading] = useState(false);
+  const [discountRowsError, setDiscountRowsError] = useState<string | null>(null);
+  const [discountPage, setDiscountPage] = useState(1);
   const [activeQuickActionCustId, setActiveQuickActionCustId] = useState<string | null>(null);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
 
@@ -125,7 +409,22 @@ export default function CustomerSummaryView({
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
 
   const [customerSegmentFilter, setCustomerSegmentFilter] = useState<'All' | 'VIP' | 'Regular' | 'New' | 'Inactive'>('All');
-
+const closePopupCustomer = () => {
+    setPopupCustomer(null);
+    setPopupActiveTab('abandoned');
+    setAbandonedCheckoutRows([]);
+    setAbandonedCheckoutsError(null);
+    setIsAbandonedCheckoutsLoading(false);
+    setAbandonedCheckoutPage(1);
+    setRefundRows([]);
+    setRefundRowsError(null);
+    setIsRefundRowsLoading(false);
+    setRefundPage(1);
+    setDiscountRows([]);
+    setDiscountRowsError(null);
+    setIsDiscountRowsLoading(false);
+    setDiscountPage(1);
+  };
   // Helper to format Date as YYYY-MM-DD
   const getLocalDateString = (d: Date) => {
     const yyyy = d.getFullYear();
@@ -227,8 +526,8 @@ export default function CustomerSummaryView({
   const activeCustomStart = debouncedDate.customStart || fallbackStart;
   const activeCustomEnd = debouncedDate.customEnd || fallbackEnd;
 
-  const isCard1Loading = isDateRefetching || isSegmentRefetching;
-  const isOtherCardsLoading = isDateRefetching;
+  const isCard1Loading = false;
+  const isOtherCardsLoading = false;
 
   // 1. Get exact start/end dates for calculations based on debounced filter values
   const filterRange = useMemo(() => {
@@ -277,6 +576,14 @@ export default function CustomerSummaryView({
 
   // 2. Compute dynamic data for cards
   const mostValuableData = useMemo(() => {
+    return [
+      { id: '101', name: 'Amit J.', segment: 'VIP' as CustomerSegment, value: 82172.98 },
+      { id: '102', name: 'Emma S.', segment: 'Regular' as CustomerSegment, value: 54120.5 },
+      { id: '103', name: 'David W.', segment: 'VIP' as CustomerSegment, value: 32980.25 },
+      { id: '104', name: 'Liam J.', segment: 'Inactive' as CustomerSegment, value: 12450.0 },
+      { id: '105', name: 'Nora K.', segment: 'New' as CustomerSegment, value: 9850.75 }
+    ];
+
     const { startStr, endStr } = filterRange;
     const seg = debouncedSegment;
     
@@ -295,6 +602,14 @@ export default function CustomerSummaryView({
   }, [customers, filterRange, debouncedSegment]);
 
   const highestOrderData = useMemo(() => {
+    return [
+      { name: 'Amit J.', segment: 'VIP' as CustomerSegment, value: 7 },
+      { name: 'Emma S.', segment: 'Regular' as CustomerSegment, value: 5 },
+      { name: 'David W.', segment: 'VIP' as CustomerSegment, value: 4 },
+      { name: 'Liam J.', segment: 'Inactive' as CustomerSegment, value: 2 },
+      { name: 'Nora K.', segment: 'New' as CustomerSegment, value: 1 }
+    ];
+
     const { startStr, endStr } = filterRange;
     
     return customers
@@ -309,6 +624,24 @@ export default function CustomerSummaryView({
 
   // 3. Compute dynamic line chart data for Revenue Analytics
   const currentChart = useMemo(() => {
+    return {
+      total: '₹82,172.98',
+      timeline: '30-DAY TIMELINE',
+      points: [
+        { label: 'Jun 20', value: 1200, displayValue: '₹1,200' },
+        { label: 'Jun 24', value: 1800, displayValue: '₹1,800' },
+        { label: 'Jun 28', value: 1500, displayValue: '₹1,500' },
+        { label: 'Jul 2', value: 2100, displayValue: '₹2,100' },
+        { label: 'Jul 6', value: 2400, displayValue: '₹2,400' },
+        { label: 'Jul 10', value: 2600, displayValue: '₹2,600' },
+        { label: 'Jul 12', value: 3200, displayValue: '₹3,200' },
+        { label: 'Jul 13', value: 2900, displayValue: '₹2,900' },
+        { label: 'Jul 14', value: 4200, displayValue: '₹4,200' },
+        { label: 'Jul 15', value: 19500, displayValue: '₹19,500' },
+        { label: 'Jul 16', value: 5100, displayValue: '₹5,100' }
+      ]
+    };
+
     const { startStr, endStr, startD, endD } = filterRange;
     
     const ordersInRange: { date: string; amount: number; orderId: string }[] = [];
@@ -537,10 +870,21 @@ export default function CustomerSummaryView({
   // Individual filters states
   const [showFilterConsole, setShowFilterConsole] = useState(false);
   const [showOrderProductFilters, setShowOrderProductFilters] = useState(false);
+  const [draftFilterCustomerName, setDraftFilterCustomerName] = useState('');
+  const [draftFilterEmailPhone, setDraftFilterEmailPhone] = useState('');
+  const [draftFilterCountry, setDraftFilterCountry] = useState('');
+  const [draftFilterTotalSpend, setDraftFilterTotalSpend] = useState('');
+  const [draftFilterOrderId, setDraftFilterOrderId] = useState('');
+  const [draftOrderStartDate, setDraftOrderStartDate] = useState('');
+  const [draftOrderEndDate, setDraftOrderEndDate] = useState('');
+  const [draftFilterPaymentStatus, setDraftFilterPaymentStatus] = useState('All');
+  const [draftFilterProductName, setDraftFilterProductName] = useState('');
+  const [draftFilterVariant, setDraftFilterVariant] = useState('');
+
   const [filterCustomerName, setFilterCustomerName] = useState('');
   const [filterEmailPhone, setFilterEmailPhone] = useState('');
-  const [filterCountry, setFilterCountry] = useState('All');
-  const [filterTotalSpend, setFilterTotalSpend] = useState('All');
+  const [filterCountry, setFilterCountry] = useState('');
+  const [filterTotalSpend, setFilterTotalSpend] = useState('');
   const [filterOrderId, setFilterOrderId] = useState('');
   const [filterOrderStatus, setFilterOrderStatus] = useState('All');
   const [filterPaymentStatus, setFilterPaymentStatus] = useState('All');
@@ -549,6 +893,78 @@ export default function CustomerSummaryView({
 
   const [segmentFilter, setSegmentFilter] = useState('All');
   const [leadStatusFilter, setLeadStatusFilter] = useState('All');
+
+  const applyCustomerFilters = () => {
+    setFilterCustomerName(draftFilterCustomerName);
+    setFilterEmailPhone(draftFilterEmailPhone);
+    setFilterCountry(draftFilterCountry);
+    setFilterTotalSpend(draftFilterTotalSpend);
+    setFilterOrderId(draftFilterOrderId);
+    setOrderStartDate(draftOrderStartDate);
+    setOrderEndDate(draftOrderEndDate);
+    setFilterPaymentStatus(draftFilterPaymentStatus);
+    setOrderPaymentStatusFilter(draftFilterPaymentStatus);
+    setFilterProductName(draftFilterProductName);
+    setFilterVariant(draftFilterVariant);
+    setCurrentPage(1);
+  };
+
+  const clearCustomerFilters = () => {
+    setDraftFilterCustomerName('');
+    setDraftFilterEmailPhone('');
+    setDraftFilterCountry('');
+    setDraftFilterTotalSpend('');
+    setDraftFilterOrderId('');
+    setDraftOrderStartDate('');
+    setDraftOrderEndDate('');
+    setDraftFilterPaymentStatus('All');
+    setDraftFilterProductName('');
+    setDraftFilterVariant('');
+
+    setFilterCustomerName('');
+    setFilterEmailPhone('');
+    setFilterCountry('');
+    setFilterTotalSpend('');
+    setFilterOrderId('');
+    setOrderStartDate('');
+    setOrderEndDate('');
+    setFilterPaymentStatus('All');
+    setOrderPaymentStatusFilter('All');
+    setFilterProductName('');
+    setFilterVariant('');
+    setCurrentPage(1);
+  };
+
+  React.useEffect(() => {
+    if (!onCustomerQueryChange) {
+      return;
+    }
+
+    onCustomerQueryChange({
+      customerType: segmentFilter as 'All' | CustomerSegment,
+      customerNameOrId: filterCustomerName.trim(),
+      emailOrPhone: filterEmailPhone.trim(),
+      country: filterCountry.trim(),
+      lifetimeSpend: filterTotalSpend.trim(),
+      orderId: filterOrderId.trim(),
+      orderDateFrom: orderStartDate.trim(),
+      orderDateTo: orderEndDate.trim(),
+      productName: filterProductName.trim(),
+      productVariant: filterVariant.trim()
+    });
+  }, [
+    segmentFilter,
+    filterCustomerName,
+    filterEmailPhone,
+    filterCountry,
+    filterTotalSpend,
+    filterOrderId,
+    orderStartDate,
+    orderEndDate,
+    filterProductName,
+    filterVariant,
+    onCustomerQueryChange
+  ]);
 
   // Customer Actions dropdown inside the panel
   const [showActionsDropdown, setShowActionsDropdown] = useState(false);
@@ -603,106 +1019,121 @@ export default function CustomerSummaryView({
   const [dynamicSegEnabled, setDynamicSegEnabled] = useState(true);
   const [spendThreshold, setSpendThreshold] = useState(150000);
   const [orderThreshold, setOrderThreshold] = useState(10);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
-  // Simulate Export Excel
-  const handleExportExcel = () => {
-    alert('Generating CRM Customer Report...\nSheet downloaded successfully: shopify_crm_customers_export.xlsx');
+  const handleExportExcel = async () => {
+    if (isExportingExcel) {
+      return;
+    }
+
+    setIsExportingExcel(true);
+
+    try {
+      const filename = await exportCustomer360Customers();
+      alert(`Customer export downloaded successfully:\n${filename}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to export customer data.';
+      alert(message);
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
 
   const handleRefresh = () => {
     setSearchQuery('');
-    setFilterCustomerName('');
-    setFilterEmailPhone('');
-    setFilterCountry('All');
-    setFilterTotalSpend('All');
-    setFilterOrderId('');
+    setOrderSearchQuery('');
+    clearCustomerFilters();
     setFilterOrderStatus('All');
-    setFilterPaymentStatus('All');
-    setFilterProductName('');
-    setFilterVariant('');
     setSegmentFilter('All');
     setLeadStatusFilter('All');
+    setSortColumn(null);
+    setSortDirection(null);
     setSelectedCustomer(null);
     setShowFilterConsole(false);
     setShowOrderProductFilters(false);
-    onRefreshCustomers();
+    onRefreshCustomers('All');
   };
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
     return customers.filter(cust => {
-      // 1. Customer segment filter
-      if (segmentFilter !== 'All' && cust.segment !== segmentFilter) return false;
+      // 1. Customer segment is now resolved by the backend customerType filter.
+      // Keep local filtering for the other grid controls only.
       if (leadStatusFilter !== 'All' && cust.leadStatus !== leadStatusFilter) return false;
 
       // 2. Individual Customer Name filter
       if (filterCustomerName.trim() !== '') {
-        const query = filterCustomerName.toLowerCase();
-        if (!cust.name.toLowerCase().includes(query) && !cust.id.toLowerCase().includes(query)) {
+        const query = normalizeSearchText(filterCustomerName);
+        if (!normalizeSearchText(cust.name).includes(query) && !normalizeSearchText(cust.id).includes(query)) {
           return false;
         }
       }
 
       // 3. Individual Email/Phone filter
       if (filterEmailPhone.trim() !== '') {
-        const query = filterEmailPhone.toLowerCase();
-        if (!cust.email.toLowerCase().includes(query) && !cust.phone.toLowerCase().includes(query)) {
+        const query = normalizeSearchText(filterEmailPhone);
+        if (!normalizeSearchText(cust.email).includes(query) && !normalizeSearchText(cust.phone).includes(query)) {
           return false;
         }
       }
 
       // 4. Individual Country filter
-      if (filterCountry !== 'All' && filterCountry.trim() !== '') {
-        const query = filterCountry.toLowerCase();
-        if (!cust.country.toLowerCase().includes(query)) {
+      if (filterCountry.trim() !== '') {
+        const query = normalizeSearchText(filterCountry);
+        if (!normalizeSearchText(cust.country).includes(query)) {
           return false;
         }
       }
 
       // 5. Individual Total Spend filter
-      if (filterTotalSpend !== 'All') {
-        const spend = cust.totalSpend;
-        if (filterTotalSpend === '<15k' && spend >= 15000) return false;
-        if (filterTotalSpend === '15k-50k' && (spend < 15000 || spend > 50000)) return false;
-        if (filterTotalSpend === '50k-150k' && (spend < 50000 || spend > 150000)) return false;
-        if (filterTotalSpend === '150k+' && spend < 150000) return false;
+      if (filterTotalSpend.trim() !== '') {
+        const minSpend = parseSpendFilterValue(filterTotalSpend);
+        if (Number.isFinite(minSpend) && cust.totalSpend < minSpend) {
+          return false;
+        }
       }
 
       // 6. Individual Order ID filter
       if (filterOrderId.trim() !== '') {
-        const query = filterOrderId.toLowerCase();
-        const hasMatchingOrder = cust.orders?.some(o => o.orderId.toLowerCase().includes(query));
+        const query = normalizeSearchText(filterOrderId);
+        const hasMatchingOrder = cust.orders?.some(o => normalizeSearchText(o.orderId).includes(query));
         if (!hasMatchingOrder) return false;
       }
 
       // 7. Individual Order Status filter
       if (filterOrderStatus !== 'All') {
-        const query = filterOrderStatus.toLowerCase();
-        const hasMatchingOrder = cust.orders?.some(o => o.status.toLowerCase() === query);
+        const query = normalizeStatusCode(filterOrderStatus);
+        const hasMatchingOrder = cust.orders?.some(o => normalizeStatusCode(o.status) === query);
         if (!hasMatchingOrder) return false;
       }
 
       // 8. Individual Payment Status filter
       if (filterPaymentStatus !== 'All') {
-        if (filterPaymentStatus === 'Paid' && (!cust.orders || cust.orders.length === 0)) {
-          return false;
-        }
-        if (filterPaymentStatus === 'Unpaid') {
-          return false; // The live customer sync API only exposes paid order histories here
-        }
+        const query = normalizeStatusCode(filterPaymentStatus);
+        const hasMatchingOrder = cust.orders?.some(o => normalizeStatusCode(o.paymentStatus) === query);
+        if (!hasMatchingOrder) return false;
       }
 
       // 9. Individual Product Name filter
       if (filterProductName.trim() !== '') {
-        const query = filterProductName.toLowerCase();
-        const hasMatchingProduct = cust.products?.some(p => p.name.toLowerCase().includes(query));
+        const query = normalizeSearchText(filterProductName);
+        const hasMatchingProduct = cust.products?.some(p => {
+          return [
+            p.name,
+            p.variant,
+            p.productType,
+            p.vendor,
+            p.sku,
+            p.orderName
+          ].some((field) => field ? normalizeSearchText(field).includes(query) : false);
+        });
         if (!hasMatchingProduct) return false;
       }
 
       // 10. Individual Variant filter
       if (filterVariant.trim() !== '') {
-        const query = filterVariant.toLowerCase();
-        const hasMatchingVariant = cust.products?.some(p => p.variant.toLowerCase().includes(query));
+        const query = normalizeSearchText(filterVariant);
+        const hasMatchingVariant = cust.products?.some(p => normalizeSearchText(p.variant).includes(query));
         if (!hasMatchingVariant) return false;
       }
 
@@ -736,7 +1167,7 @@ export default function CustomerSummaryView({
       const lineItemText = lineItems
         .map(item => [item.name, item.productType, item.vendor, item.variant, item.sku].filter(Boolean).join(' '))
         .join(' ');
-      return [order.orderId, order.name, lineItemText].filter(Boolean).join(' ').toLowerCase();
+      return normalizeSearchText([order.orderId, order.name, lineItemText].filter(Boolean).join(' '));
     };
 
     const getOrderSummary = (order: CustomerOrder) => {
@@ -749,7 +1180,7 @@ export default function CustomerSummaryView({
 
     // Filter by Order ID / Order Name / Product fields
     if (orderSearchQuery.trim() !== '') {
-      const q = orderSearchQuery.toLowerCase();
+      const q = normalizeSearchText(orderSearchQuery);
       items = items.filter(o => {
         const searchText = getOrderSearchText(o);
         return searchText.includes(q);
@@ -758,51 +1189,56 @@ export default function CustomerSummaryView({
 
     // Apply global individual filters if set
     if (filterOrderId.trim() !== '') {
-      const q = filterOrderId.toLowerCase();
-      items = items.filter(o => o.orderId.toLowerCase().includes(q));
+      const q = normalizeSearchText(filterOrderId);
+      items = items.filter(o => normalizeSearchText(o.orderId).includes(q));
     }
     if (filterOrderStatus !== 'All') {
-      const q = filterOrderStatus.toLowerCase();
-      items = items.filter(o => o.status.toLowerCase() === q);
+      const q = normalizeStatusCode(filterOrderStatus);
+      items = items.filter(o => normalizeStatusCode(o.status) === q);
     }
     if (filterPaymentStatus !== 'All') {
-      if (filterPaymentStatus === 'Unpaid') {
-        items = [];
-      }
+      const q = normalizeStatusCode(filterPaymentStatus);
+      items = items.filter(o => normalizeStatusCode(o.paymentStatus) === q);
     }
     if (filterProductName.trim() !== '') {
-      const q = filterProductName.toLowerCase();
+      const q = normalizeSearchText(filterProductName);
       items = items.filter(o => {
         const summary = getOrderSummary(o);
-        return summary.lineItems.some(item => item.name.toLowerCase().includes(q));
+        return summary.lineItems.some(item => {
+          return [
+            item.name,
+            item.productType,
+            item.vendor,
+            item.variant,
+            item.sku
+          ].some((field) => field ? normalizeSearchText(field).includes(q) : false);
+        });
       });
     }
     if (filterVariant.trim() !== '') {
-      const q = filterVariant.toLowerCase();
+      const q = normalizeSearchText(filterVariant);
       items = items.filter(o => {
         const summary = getOrderSummary(o);
-        return summary.lineItems.some(item => item.variant.toLowerCase().includes(q));
+        return summary.lineItems.some(item => normalizeSearchText(item.variant).includes(q));
       });
     }
 
     // Filter by Order Status
     if (orderStatusFilter !== 'All') {
-      items = items.filter(o => o.status === orderStatusFilter);
+      const q = normalizeStatusCode(orderStatusFilter);
+      items = items.filter(o => normalizeStatusCode(o.status) === q);
     }
 
     // Filter by Fulfillment Status
     if (orderFulfillmentStatusFilter !== 'All') {
-      items = items.filter(o => {
-        const status = o.fulfillmentStatus || 'Pending';
-        return status === orderFulfillmentStatusFilter;
-      });
+      const q = normalizeStatusCode(orderFulfillmentStatusFilter);
+      items = items.filter(o => normalizeStatusCode(o.fulfillmentStatus) === q);
     }
 
-    // Filter by Payment Status (live sync data currently maps paid orders here)
+    // Filter by Payment Status
     if (orderPaymentStatusFilter !== 'All') {
-      if (orderPaymentStatusFilter === 'Unpaid') {
-        return { total: 0, items: [], totalPages: 1 }; // zero items match Unpaid in the current API payload
-      }
+      const q = normalizeStatusCode(orderPaymentStatusFilter);
+      items = items.filter(o => normalizeStatusCode(o.paymentStatus) === q);
     }
 
     // Filter by Order Amount (Between / Range)
@@ -892,8 +1328,8 @@ export default function CustomerSummaryView({
   ]);
 
   // Sorting & Pagination States
-  const [sortColumn, setSortColumn] = useState<string | null>('name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>('asc');
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const customerGrid = useResizableColumns(CUSTOMER_GRID_COLUMNS);
@@ -974,13 +1410,192 @@ export default function CustomerSummaryView({
   }, [sortedCustomers, currentPage, pageSize]);
 
   const totalPages = Math.ceil(sortedCustomers.length / pageSize) || 1;
-
+  const abandonedCheckoutPageSize = 5;
+  const abandonedCheckoutTotalPages = Math.ceil(abandonedCheckoutRows.length / abandonedCheckoutPageSize) || 1;
+  const abandonedCheckoutPaginatedRows = useMemo(() => {
+    const startIndex = (abandonedCheckoutPage - 1) * abandonedCheckoutPageSize;
+    return abandonedCheckoutRows.slice(startIndex, startIndex + abandonedCheckoutPageSize);
+  }, [abandonedCheckoutRows, abandonedCheckoutPage]);
+  const refundPageSize = 5;
+  const refundTotalPages = Math.ceil(refundRows.length / refundPageSize) || 1;
+  const refundPaginatedRows = useMemo(() => {
+    const startIndex = (refundPage - 1) * refundPageSize;
+    return refundRows.slice(startIndex, startIndex + refundPageSize);
+  }, [refundRows, refundPage]);
+  const discountPageSize = 5;
+  const discountTotalPages = Math.ceil(discountRows.length / discountPageSize) || 1;
+  const discountPaginatedRows = useMemo(() => {
+    const startIndex = (discountPage - 1) * discountPageSize;
+    return discountRows.slice(startIndex, startIndex + discountPageSize);
+  }, [discountRows, discountPage]);
+ 
+  React.useEffect(() => {
+    if (abandonedCheckoutPage > abandonedCheckoutTotalPages) {
+      setAbandonedCheckoutPage(abandonedCheckoutTotalPages);
+    }
+  }, [abandonedCheckoutPage, abandonedCheckoutTotalPages]);
+ 
+  React.useEffect(() => {
+    if (refundPage > refundTotalPages) {
+      setRefundPage(refundTotalPages);
+    }
+  }, [refundPage, refundTotalPages]);
+ 
+  React.useEffect(() => {
+    if (discountPage > discountTotalPages) {
+      setDiscountPage(discountTotalPages);
+    }
+  }, [discountPage, discountTotalPages]);
   const SortArrow = ({ column }: { column: string }) => {
     if (sortColumn !== column) return <span className="text-gray-300 ml-1">↕</span>;
     if (sortDirection === 'asc') return <span className="text-brand-primary font-bold ml-1">↑</span>;
     return <span className="text-brand-primary font-bold ml-1">↓</span>;
   };
 
+    React.useEffect(() => {
+    if (!popupCustomer || popupActiveTab !== 'abandoned') {
+      return;
+    }
+ 
+    setAbandonedCheckoutPage(1);
+ 
+    const controller = new AbortController();
+    let isActive = true;
+ 
+    const loadAbandonedCheckouts = async () => {
+      setIsAbandonedCheckoutsLoading(true);
+      setAbandonedCheckoutsError(null);
+ 
+      try {
+        const rows = await fetchAbandonedCheckoutsByCustomerId({
+          customerId: popupCustomer.id,
+          signal: controller.signal
+        });
+ 
+        if (!isActive) {
+          return;
+        }
+ 
+        setAbandonedCheckoutRows(rows);
+      } catch (error) {
+        if (!isActive || controller.signal.aborted) {
+          return;
+        }
+ 
+        const message = error instanceof Error ? error.message : 'Failed to load abandoned checkout rows.';
+        setAbandonedCheckoutRows([]);
+        setAbandonedCheckoutsError(message);
+      } finally {
+        if (isActive) {
+          setIsAbandonedCheckoutsLoading(false);
+        }
+      }
+    };
+ 
+    void loadAbandonedCheckouts();
+ 
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [popupCustomer?.id, popupActiveTab]);
+ 
+  React.useEffect(() => {
+    if (!popupCustomer || popupActiveTab !== 'refunds') {
+      return;
+    }
+ 
+    setRefundPage(1);
+ 
+    const controller = new AbortController();
+    let isActive = true;
+ 
+    const loadRefundRows = async () => {
+      setIsRefundRowsLoading(true);
+      setRefundRowsError(null);
+ 
+      try {
+        const rows = await fetchCustomerRefundsByCustomerId({
+          customerId: popupCustomer.id,
+          signal: controller.signal
+        });
+ 
+        if (!isActive) {
+          return;
+        }
+ 
+        setRefundRows(rows);
+      } catch (error) {
+        if (!isActive || controller.signal.aborted) {
+          return;
+        }
+ 
+        const message = error instanceof Error ? error.message : 'Failed to load refund rows.';
+        setRefundRows([]);
+        setRefundRowsError(message);
+      } finally {
+        if (isActive) {
+          setIsRefundRowsLoading(false);
+        }
+      }
+    };
+ 
+    void loadRefundRows();
+ 
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [popupCustomer?.id, popupActiveTab]);
+ 
+  React.useEffect(() => {
+    if (!popupCustomer || popupActiveTab !== 'discounts') {
+      return;
+    }
+ 
+    setDiscountPage(1);
+ 
+    const controller = new AbortController();
+    let isActive = true;
+ 
+    const loadDiscountRows = async () => {
+      setIsDiscountRowsLoading(true);
+      setDiscountRowsError(null);
+ 
+      try {
+        const rows = await fetchCustomerDiscountsByCustomerId({
+          customerId: popupCustomer.id,
+          signal: controller.signal
+        });
+ 
+        if (!isActive) {
+          return;
+        }
+ 
+        setDiscountRows(rows);
+      } catch (error) {
+        if (!isActive || controller.signal.aborted) {
+          return;
+        }
+ 
+        const message = error instanceof Error ? error.message : 'Failed to load discount rows.';
+        setDiscountRows([]);
+        setDiscountRowsError(message);
+      } finally {
+        if (isActive) {
+          setIsDiscountRowsLoading(false);
+        }
+      }
+    };
+ 
+    void loadDiscountRows();
+ 
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [popupCustomer?.id, popupActiveTab]);
+ 
   // Actions dropdown handler
   const handleActionClick = (type: 'VIP' | 'Welcome' | 'Normal') => {
     setSelectedActionType(type);
@@ -1186,9 +1801,9 @@ export default function CustomerSummaryView({
         </div>
       </div>
 
-      {/* THREE ANALYTICS CARDS (Most Valuable Customers, Highest Order Customers, Revenue Analytics) */}
+      {/* THREE ANALYTICS CARDS (Top Customer Leaderboard, Highest Order Customers, Revenue Analytics) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Card 1: Most Valuable Customers - Column Bar Chart */}
+        {/* Card 1: Top Customer Leaderboard - Column Bar Chart */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -1197,13 +1812,9 @@ export default function CustomerSummaryView({
                   ₹
                 </div>
                 <div>
-                  <h3 className="text-sm font-extrabold text-gray-900 tracking-tight">Most Valuable Customers</h3>
-                  <p className="text-[11px] text-gray-400 font-medium">By total spend in range</p>
+                  <h3 className="text-sm font-extrabold text-gray-900 tracking-tight">Top Customer Leaderboard</h3>
                 </div>
               </div>
-              <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-600 tracking-wider uppercase">
-                Ranked
-              </span>
             </div>
 
             {/* Segment Selector Row */}
@@ -1281,9 +1892,6 @@ export default function CustomerSummaryView({
                 Top spender: {isCard1Loading ? '...' : (mostValuableData[0] ? '₹' + mostValuableData[0].value.toLocaleString('en-IN') : '₹0')}
               </span>
             </div>
-            <span className="font-mono text-[10px] font-bold text-gray-400">
-              {isCard1Loading ? '...' : (mostValuableData[0] ? mostValuableData[0].id : 'NO ACTIVE CUST')}
-            </span>
           </div>
         </div>
 
@@ -1503,6 +2111,9 @@ export default function CustomerSummaryView({
                         onClick={() => {
                           setSegmentFilter(pill.value);
                           setCurrentPage(1);
+                          setSortColumn(null);
+                          setSortDirection(null);
+                          setSelectedCustomer(null);
                         }}
                         className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer border ${
                           isActive 
@@ -1544,9 +2155,10 @@ export default function CustomerSummaryView({
                   {/* Export Excel Button */}
                   <button 
                     onClick={handleExportExcel}
-                    className="bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer shadow-xxs transition-all border border-[#96bae6]"
+                    disabled={isExportingExcel}
+                    className={`bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-xxs transition-all border border-[#96bae6] ${isExportingExcel ? 'cursor-wait opacity-70 hover:bg-[#B9D7FC]' : 'cursor-pointer'}`}
                   >
-                    <Download className="w-3 h-3 text-slate-900" /> Export Excel
+                    <Download className="w-3 h-3 text-slate-900" /> {isExportingExcel ? 'Exporting...' : 'Export Excel'}
                   </button>
                 </div>
               </div>
@@ -1562,8 +2174,8 @@ export default function CustomerSummaryView({
                     <input 
                       type="text"
                       placeholder="Filter by name..."
-                      value={filterCustomerName}
-                      onChange={(e) => { setFilterCustomerName(e.target.value); setCurrentPage(1); }}
+                      value={draftFilterCustomerName}
+                      onChange={(e) => setDraftFilterCustomerName(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-gray-400 shadow-xxs transition-all"
                     />
                   </div>
@@ -1572,38 +2184,37 @@ export default function CustomerSummaryView({
                     <input 
                       type="text"
                       placeholder="Filter by email or phone..."
-                      value={filterEmailPhone}
-                      onChange={(e) => { setFilterEmailPhone(e.target.value); setCurrentPage(1); }}
+                      value={draftFilterEmailPhone}
+                      onChange={(e) => setDraftFilterEmailPhone(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-gray-400 shadow-xxs transition-all"
                     />
                   </div>
                   <div>
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Country</label>
-                    <select
-                      value={filterCountry}
-                      onChange={(e) => { setFilterCountry(e.target.value); setCurrentPage(1); }}
-                      className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all cursor-pointer"
-                    >
-                      <option value="All">All Countries</option>
-                      <option value="India">India</option>
-                      <option value="United States">United States</option>
-                      <option value="United Kingdom">United Kingdom</option>
-                      <option value="Canada">Canada</option>
-                    </select>
+                    <input
+                      list="country-options"
+                      type="text"
+                      placeholder="Search country..."
+                      value={draftFilterCountry}
+                      onChange={(e) => setDraftFilterCountry(e.target.value)}
+                      className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
+                    />
+                    <datalist id="country-options">
+                      {COUNTRY_OPTIONS.map((country) => (
+                        <option key={country} value={country} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Lifetime Spend</label>
-                    <select
-                      value={filterTotalSpend}
-                      onChange={(e) => { setFilterTotalSpend(e.target.value); setCurrentPage(1); }}
-                      className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all cursor-pointer"
-                    >
-                      <option value="All">All Spends</option>
-                      <option value="<15k">Under ₹15,000</option>
-                      <option value="15k-50k">₹15,000 - ₹50,000</option>
-                      <option value="50k-150k">₹50,000 - ₹1,50,000</option>
-                      <option value="150k+">₹1,50,000+</option>
-                    </select>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                      value={draftFilterTotalSpend}
+                      onChange={(e) => setDraftFilterTotalSpend(formatSpendFilterValue(e.target.value))}
+                      placeholder="e.g. 1,00,000"
+                      className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
+                    />
                   </div>
                 </div>
 
@@ -1614,8 +2225,8 @@ export default function CustomerSummaryView({
                     <input 
                       type="text"
                       placeholder="e.g. #SH-90392"
-                      value={filterOrderId}
-                      onChange={(e) => { setFilterOrderId(e.target.value); setCurrentPage(1); }}
+                      value={draftFilterOrderId}
+                      onChange={(e) => setDraftFilterOrderId(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-gray-400 shadow-xxs transition-all"
                     />
                   </div>
@@ -1623,8 +2234,8 @@ export default function CustomerSummaryView({
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Order Date From</label>
                     <input 
                       type="date"
-                      value={orderStartDate}
-                      onChange={(e) => { setOrderStartDate(e.target.value); setCurrentPage(1); }}
+                      value={draftOrderStartDate}
+                      onChange={(e) => setDraftOrderStartDate(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
                     />
                   </div>
@@ -1632,20 +2243,16 @@ export default function CustomerSummaryView({
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Order Date To</label>
                     <input 
                       type="date"
-                      value={orderEndDate}
-                      onChange={(e) => { setOrderEndDate(e.target.value); setCurrentPage(1); }}
+                      value={draftOrderEndDate}
+                      onChange={(e) => setDraftOrderEndDate(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
                     />
                   </div>
                   <div>
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Payment Status</label>
                     <select
-                      value={orderPaymentStatusFilter}
-                      onChange={(e) => {
-                        setOrderPaymentStatusFilter(e.target.value);
-                        setFilterPaymentStatus(e.target.value);
-                        setCurrentPage(1);
-                      }}
+                      value={draftFilterPaymentStatus}
+                      onChange={(e) => setDraftFilterPaymentStatus(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all cursor-pointer"
                     >
                       <option value="All">All Statuses</option>
@@ -1658,8 +2265,8 @@ export default function CustomerSummaryView({
                     <input 
                       type="text"
                       placeholder="Filter by product..."
-                      value={filterProductName}
-                      onChange={(e) => { setFilterProductName(e.target.value); setCurrentPage(1); }}
+                      value={draftFilterProductName}
+                      onChange={(e) => setDraftFilterProductName(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-gray-400 shadow-xxs transition-all"
                     />
                   </div>
@@ -1668,36 +2275,29 @@ export default function CustomerSummaryView({
                     <input 
                       type="text"
                       placeholder="Filter by variant..."
-                      value={filterVariant}
-                      onChange={(e) => { setFilterVariant(e.target.value); setCurrentPage(1); }}
+                      value={draftFilterVariant}
+                      onChange={(e) => setDraftFilterVariant(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-gray-400 shadow-xxs transition-all"
                     />
                   </div>
                 </div>
 
-                {(filterCustomerName || filterEmailPhone || filterCountry !== 'All' || filterTotalSpend !== 'All' || filterOrderId || orderStartDate || orderEndDate || orderPaymentStatusFilter !== 'All' || filterProductName || filterVariant) && (
-                  <div className="flex justify-end pt-1">
-                    <button 
-                      onClick={() => {
-                        setFilterCustomerName('');
-                        setFilterEmailPhone('');
-                        setFilterCountry('All');
-                        setFilterTotalSpend('All');
-                        setFilterOrderId('');
-                        setOrderStartDate('');
-                        setOrderEndDate('');
-                        setOrderPaymentStatusFilter('All');
-                        setFilterPaymentStatus('All');
-                        setFilterProductName('');
-                        setFilterVariant('');
-                        setCurrentPage(1);
-                      }}
-                      className="text-xs text-red-600 hover:text-red-800 font-bold flex items-center gap-1 transition-colors cursor-pointer border-b border-red-600 border-dashed"
-                    >
-                      Clear All Filters
-                    </button>
-                  </div>
-                )}
+                <div className="flex justify-end pt-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={applyCustomerFilters}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xxs transition-all border bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border-[#96bae6]"
+                  >
+                    <Search className="w-3 h-3" /> Search
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearCustomerFilters}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xxs transition-all border bg-white hover:bg-gray-50 border-gray-300 text-gray-700"
+                  >
+                    <X className="w-3 h-3" /> Clear
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1705,14 +2305,8 @@ export default function CustomerSummaryView({
           {/* CUSTOMERS GRID TABLE */}
 
           {isLoadingCustomers ? (
-            <div className="border-t border-gray-200 p-12 text-center bg-white">
-              <div className="w-16 h-16 bg-bg-neutral rounded-full flex items-center justify-center mx-auto mb-4 text-text-secondary animate-pulse">
-                <Users className="w-8 h-8" />
-              </div>
-              <h3 className="text-sm font-semibold text-text-primary">Loading live customer data</h3>
-              <p className="text-xs text-text-secondary max-w-sm mx-auto mt-2">
-                Fetching customer rows from the backend API.
-              </p>
+            <div className="border-t border-gray-200 bg-white">
+              {/* <CustomerDataLoader /> */}
             </div>
           ) : filteredCustomers.length === 0 ? (
             <div className="border-t border-gray-200 p-12 text-center bg-white">
@@ -1799,7 +2393,7 @@ export default function CustomerSummaryView({
                                 className="text-[14px] font-bold text-text-primary hover:text-brand-primary cursor-pointer hover:underline truncate"
                                 title={cust.name}
                               >
-                                {cust.name}
+                                {cust.name ? formatCustomerDisplayName(cust.name) : '-'}
                               </div>
                               <div className="text-[12px] text-text-secondary font-mono mt-0.5">{cust.id}</div>
                             </td>
@@ -1826,9 +2420,14 @@ export default function CustomerSummaryView({
                               {cust.lastLogin || '-'}
                             </td>
                             <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle">
-                              <span className={`text-[11px] px-2.5 py-1 border rounded-full font-bold uppercase tracking-wide ${segmentStyles[cust.segment]}`}>
-                                {cust.segment}
-                              </span>
+                              {(() => {
+                                const customerType = cust.customerType ?? cust.segment;
+                                return (
+                                  <span className={`text-[11px] px-2.5 py-1 border rounded-full font-bold uppercase tracking-wide ${segmentStyles[customerType]}`}>
+                                    {customerType}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="py-2 px-2 border-b border-gray-200 align-middle text-center">
                               <div className="relative inline-block text-left group">
@@ -1873,20 +2472,7 @@ export default function CustomerSummaryView({
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <div className="flex flex-col gap-1.5">
-                                        {/* Row 1: Wishlist */}
-                                        <div 
-                                          onClick={() => {
-                                            setPopupCustomer(cust);
-                                            setPopupActiveTab('wishlist');
-                                            setActiveQuickActionCustId(null);
-                                          }}
-                                          className="bg-slate-50 hover:bg-indigo-50/40 border border-gray-100 hover:border-indigo-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
-                                        >
-                                          <Heart className="w-4 h-4 text-[#5b3bf5]" />
-                                          <span className="text-[12px] font-bold text-gray-700">Wishlist</span>
-                                        </div>
-
-                                        {/* Row 2: Abandoned Checkout */}
+                                        {/* Row 1: Abandoned Checkout */}
                                         <div 
                                           onClick={() => {
                                             setPopupCustomer(cust);
@@ -1899,7 +2485,7 @@ export default function CustomerSummaryView({
                                           <span className="text-[12px] font-bold text-gray-700">Abandoned checkout</span>
                                         </div>
 
-                                        {/* Row 3: Refund status */}
+                                        {/* Row 2: Refund status */}
                                         <div 
                                           onClick={() => {
                                             setPopupCustomer(cust);
@@ -1912,7 +2498,7 @@ export default function CustomerSummaryView({
                                           <span className="text-[12px] font-bold text-gray-700">Refund status</span>
                                         </div>
 
-                                        {/* Row 4: Applied discount */}
+                                        {/* Row 3: Applied discount */}
                                         <div 
                                           onClick={() => {
                                             setPopupCustomer(cust);
@@ -1935,78 +2521,79 @@ export default function CustomerSummaryView({
                           {isExpanded && (
                             <tr className="bg-white">
                               <td colSpan={11} className="px-2 py-1.5 border-b border-gray-200 bg-slate-50/10">
-                                <div className="relative border border-gray-300/80 rounded-xl p-3.5 shadow-xxs bg-white overflow-hidden">
-                                  <div className="absolute left-0 top-3 bottom-3 w-[4px] rounded-r-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 opacity-85" />
-                                  <div className="pl-3">
-                                    {/* Order list table */}
-                                    <div className="overflow-x-auto border border-gray-300 rounded-xl bg-white shadow-xs">
-                                    <table
-                                      className="w-full text-left border-collapse table-fixed min-w-[800px]"
-                                      style={{ minWidth: `${compactOrderGrid.tableWidth}px` }}
-                                    >
-                                      <colgroup>
-                                        {COMPACT_ORDER_GRID_COLUMNS.map((column) => (
-                                          <col key={column.id} style={compactOrderGrid.getColStyle(column.id)} />
-                                        ))}
-                                      </colgroup>
-                                      <thead>
-                                        <tr className="bg-[#edf4fe] text-slate-900 text-[13px] font-bold border-b border-gray-300">
-                                          <th className="py-1.5 px-3 text-center border-r border-gray-300 relative group">
-                                            <ResizeHandle
-                                              columnId="expander"
-                                              onResizeStart={compactOrderGrid.startResize}
-                                              onResizeMove={compactOrderGrid.handleResizeMove}
-                                              onResizeEnd={compactOrderGrid.handleResizeEnd}
-                                            />
-                                          </th>
-                                          {renderResizableHeader(compactOrderGrid, 'orderId', <>Order ID</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
-                                          {renderResizableHeader(compactOrderGrid, 'orderDate', <>Order Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold font-sans text-slate-900')}
-                                          {renderResizableHeader(compactOrderGrid, 'orderStatus', <>Order Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
-                                          {renderResizableHeader(compactOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
-                                          {renderResizableHeader(compactOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
-                                          {renderResizableHeader(compactOrderGrid, 'totalAmount', <>Total Amount</>, 'py-1.5 px-3 text-right font-bold text-slate-900 font-sans')}
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-gray-200">
-                                        {filteredAndPaginatedOrders.items.length === 0 ? (
-                                          <tr>
-                                            <td colSpan={7} className="p-8 text-center text-text-secondary">
-                                              <div className="text-sm font-semibold text-text-primary mb-1">No orders match filter criteria</div>
-                                              <div className="text-xs">Try widening your search queries or resetting filters.</div>
-                                            </td>
-                                          </tr>
-                                        ) : (
-                                          filteredAndPaginatedOrders.items.map(o => {
-                                            const orderLineItems = o.lineItems || [];
-                                            const orderName = o.name || `Order ${o.orderId}`;
-                                            const orderProductSummary = orderLineItems.length > 0
-                                              ? `${orderLineItems[0].name}${orderLineItems.length > 1 ? ` + ${orderLineItems.length - 1} more` : ''}`
-                                              : 'No products';
-                                            const isExpandedOrder = !!expandedOrderIds[o.orderId];
+                                <div className="relative border border-gray-300/80 rounded-xl shadow-xxs bg-white overflow-hidden">
+                                  <div className="relative">
+                                    <div className="absolute left-0 top-0 bottom-0 w-[4px] rounded-r-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 opacity-85" />
+                                    <div className="pt-3.5 pr-3.5 pb-3.5 pl-3">
+                                      {/* Order list table */}
+                                      <div className="overflow-x-auto border border-gray-300 rounded-xl bg-white shadow-xs">
+                                        <table
+                                          className="w-full text-left border-collapse table-fixed min-w-[800px]"
+                                          style={{ minWidth: `${compactOrderGrid.tableWidth}px` }}
+                                        >
+                                          <colgroup>
+                                            {COMPACT_ORDER_GRID_COLUMNS.map((column) => (
+                                              <col key={column.id} style={compactOrderGrid.getColStyle(column.id)} />
+                                            ))}
+                                          </colgroup>
+                                          <thead>
+                                            <tr className="bg-[#edf4fe] text-slate-900 text-[13px] font-bold border-b border-gray-300">
+                                              <th className="py-1.5 px-3 text-center border-r border-gray-300 relative group">
+                                                <ResizeHandle
+                                                  columnId="expander"
+                                                  onResizeStart={compactOrderGrid.startResize}
+                                                  onResizeMove={compactOrderGrid.handleResizeMove}
+                                                  onResizeEnd={compactOrderGrid.handleResizeEnd}
+                                                />
+                                              </th>
+                                              {renderResizableHeader(compactOrderGrid, 'orderId', <>Order ID</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'orderDate', <>Order Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold font-sans text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'orderStatus', <>Order Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'totalAmount', <>Total Amount</>, 'py-1.5 px-3 text-right font-bold text-slate-900 font-sans')}
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-200">
+                                            {filteredAndPaginatedOrders.items.length === 0 ? (
+                                              <tr>
+                                                <td colSpan={7} className="p-8 text-center text-text-secondary">
+                                                  <div className="text-sm font-semibold text-text-primary mb-1">No orders match filter criteria</div>
+                                                  <div className="text-xs">Try widening your search queries or resetting filters.</div>
+                                                </td>
+                                              </tr>
+                                            ) : (
+                                              filteredAndPaginatedOrders.items.map(o => {
+                                                const orderLineItems = o.lineItems || [];
+                                                const orderName = o.name || `Order ${o.orderId}`;
+                                                const orderProductSummary = orderLineItems.length > 0
+                                                  ? `${orderLineItems[0].name}${orderLineItems.length > 1 ? ` + ${orderLineItems.length - 1} more` : ''}`
+                                                  : 'No products';
+                                                const isExpandedOrder = !!expandedOrderIds[o.orderId];
 
-                                            return (
-                                              <React.Fragment key={o.orderId}>
-                                                <tr 
-                                                  onClick={() => setExpandedOrderIds(prev => ({ ...prev, [o.orderId]: !prev[o.orderId] }))}
-                                                  className={`hover:bg-slate-50 transition-colors cursor-pointer text-[13.5px] ${isExpandedOrder ? 'bg-slate-100/70 font-medium' : ''}`}
-                                                >
-                                                  {/* Chevron Action Column */}
-                                                  <td className="py-1.5 px-3 text-center border-r border-b border-gray-200 align-middle">
-                                                    <button 
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setExpandedOrderIds(prev => ({ ...prev, [o.orderId]: !prev[o.orderId] }));
-                                                      }}
-                                                      className="p-1 hover:bg-gray-200 rounded transition-colors text-text-secondary hover:text-text-primary inline-flex items-center justify-center cursor-pointer"
-                                                      aria-label={isExpandedOrder ? "Collapse row" : "Expand row"}
+                                                return (
+                                                  <React.Fragment key={o.orderId}>
+                                                    <tr 
+                                                      onClick={() => setExpandedOrderIds(prev => ({ ...prev, [o.orderId]: !prev[o.orderId] }))}
+                                                      className={`hover:bg-slate-50 transition-colors cursor-pointer text-[13.5px] ${isExpandedOrder ? 'bg-slate-100/70 font-medium' : ''}`}
                                                     >
-                                                      {isExpandedOrder ? (
-                                                        <ChevronDown className="w-4 h-4 text-slate-900 transform rotate-180 transition-transform duration-200" />
-                                                      ) : (
-                                                        <ChevronDown className="w-4 h-4 text-text-secondary transition-transform duration-200" />
-                                                      )}
-                                                    </button>
-                                                  </td>
+                                                      {/* Chevron Action Column */}
+                                                      <td className="py-1.5 px-3 text-center border-r border-b border-gray-200 align-middle">
+                                                        <button 
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setExpandedOrderIds(prev => ({ ...prev, [o.orderId]: !prev[o.orderId] }));
+                                                          }}
+                                                          className="p-1 hover:bg-gray-200 rounded transition-colors text-text-secondary hover:text-text-primary inline-flex items-center justify-center cursor-pointer"
+                                                          aria-label={isExpandedOrder ? "Collapse row" : "Expand row"}
+                                                        >
+                                                          {isExpandedOrder ? (
+                                                            <ChevronDown className="w-4 h-4 text-slate-900 transform rotate-180 transition-transform duration-200" />
+                                                          ) : (
+                                                            <ChevronDown className="w-4 h-4 text-text-secondary transition-transform duration-200" />
+                                                          )}
+                                                        </button>
+                                                      </td>
 
                                                   {/* Order ID */}
                                                   <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle font-mono font-bold text-brand-primary">
@@ -2020,31 +2607,17 @@ export default function CustomerSummaryView({
 
                                                   {/* Order Status */}
                                                   <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                                                    <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border ${
-                                                      o.status === 'Fulfilled' 
-                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                                    }`}>
-                                                      {o.status}
-                                                    </span>
+                                                    {renderStatusBadge('order', o.status, 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border')}
                                                   </td>
 
                                                   {/* Payment Status */}
                                                   <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                                                    <span className="text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                                      {o.paymentStatus || 'Pending'}
-                                                    </span>
+                                                    {renderStatusBadge('payment', o.paymentStatus, 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border')}
                                                   </td>
 
                                                   {/* Delivery Status */}
                                                   <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                                                    <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border ${
-                                                      o.status === 'Fulfilled' 
-                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                                        : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                                    }`}>
-                                                      {o.deliveryStatus || 'Pending'}
-                                                    </span>
+                                                    {renderStatusBadge('delivery', o.deliveryStatus, 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border')}
                                                   </td>
 
                                                   {/* Total Amount */}
@@ -2075,73 +2648,74 @@ export default function CustomerSummaryView({
                                                     </td>
                                                   </tr>
                                                 )}
-                                              </React.Fragment>
-                                            );
-                                          })
-                                        )}
-                                      </tbody>
-                                    </table>
+                                                  </React.Fragment>
+                                                );
+                                              })
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
                                     </div>
+                                  </div>
+                                </div>
 
-                                    {/* Inner Pagination */}
-                                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-text-secondary bg-white">
-                                    <div>
-                                      Showing <span className="font-semibold text-text-primary">{filteredAndPaginatedOrders.total === 0 ? 0 : Math.min((orderCurrentPage - 1) * orderPageSize + 1, filteredAndPaginatedOrders.total)}</span> to{' '}
-                                      <span className="font-semibold text-text-primary">{Math.min(orderCurrentPage * orderPageSize, filteredAndPaginatedOrders.total)}</span> of{' '}
-                                      <span className="font-semibold text-text-primary">{filteredAndPaginatedOrders.total}</span> records
-                                    </div>
+                                {/* Inner Pagination */}
+                                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-text-secondary bg-white">
+                                  <div>
+                                    Showing <span className="font-semibold text-text-primary">{filteredAndPaginatedOrders.total === 0 ? 0 : Math.min((orderCurrentPage - 1) * orderPageSize + 1, filteredAndPaginatedOrders.total)}</span> to{' '}
+                                    <span className="font-semibold text-text-primary">{Math.min(orderCurrentPage * orderPageSize, filteredAndPaginatedOrders.total)}</span> of{' '}
+                                    <span className="font-semibold text-text-primary">{filteredAndPaginatedOrders.total}</span> records
+                                  </div>
 
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setOrderCurrentPage(prev => Math.max(prev - 1, 1));
-                                        }}
-                                        disabled={orderCurrentPage === 1}
-                                        className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
-                                      >
-                                        Previous
-                                      </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOrderCurrentPage(prev => Math.max(prev - 1, 1));
+                                      }}
+                                      disabled={orderCurrentPage === 1}
+                                      className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                                    >
+                                      Previous
+                                    </button>
 
-                                      {/* Pages */}
-                                      {Array.from({ length: Math.min(5, filteredAndPaginatedOrders.totalPages) }, (_, i) => {
-                                        let pageNum = orderCurrentPage;
-                                        if (orderCurrentPage <= 3) pageNum = i + 1;
-                                        else if (orderCurrentPage >= filteredAndPaginatedOrders.totalPages - 2) pageNum = filteredAndPaginatedOrders.totalPages - 4 + i;
-                                        else pageNum = orderCurrentPage - 2 + i;
+                                    {/* Pages */}
+                                    {Array.from({ length: Math.min(5, filteredAndPaginatedOrders.totalPages) }, (_, i) => {
+                                      let pageNum = orderCurrentPage;
+                                      if (orderCurrentPage <= 3) pageNum = i + 1;
+                                      else if (orderCurrentPage >= filteredAndPaginatedOrders.totalPages - 2) pageNum = filteredAndPaginatedOrders.totalPages - 4 + i;
+                                      else pageNum = orderCurrentPage - 2 + i;
 
-                                        if (pageNum < 1 || pageNum > filteredAndPaginatedOrders.totalPages) return null;
+                                      if (pageNum < 1 || pageNum > filteredAndPaginatedOrders.totalPages) return null;
 
-                                        return (
-                                          <button
-                                            key={pageNum}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setOrderCurrentPage(pageNum);
-                                            }}
-                                            className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
-                                              orderCurrentPage === pageNum
-                                                ? 'bg-brand-primary border-brand-primary text-white'
-                                                : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
-                                            }`}
-                                          >
-                                            {pageNum}
-                                          </button>
-                                        );
-                                      })}
+                                      return (
+                                        <button
+                                          key={pageNum}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOrderCurrentPage(pageNum);
+                                          }}
+                                          className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
+                                            orderCurrentPage === pageNum
+                                              ? 'bg-brand-primary border-brand-primary text-white'
+                                              : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
+                                          }`}
+                                        >
+                                          {pageNum}
+                                        </button>
+                                      );
+                                    })}
 
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setOrderCurrentPage(prev => Math.min(prev + 1, filteredAndPaginatedOrders.totalPages));
-                                        }}
-                                        disabled={orderCurrentPage === filteredAndPaginatedOrders.totalPages}
-                                        className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
-                                      >
-                                        Next
-                                      </button>
-                                    </div>
-                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOrderCurrentPage(prev => Math.min(prev + 1, filteredAndPaginatedOrders.totalPages));
+                                      }}
+                                      disabled={orderCurrentPage === filteredAndPaginatedOrders.totalPages}
+                                      className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                                    >
+                                      Next
+                                    </button>
                                   </div>
                                 </div>
                               </td>
@@ -2255,12 +2829,12 @@ export default function CustomerSummaryView({
                 <div className="flex items-center justify-between border-b border-border-subtle pb-1.5 mb-2">
                   <span className="text-[11.5px] font-bold uppercase tracking-wider text-text-secondary">Customer Details</span>
                   <span className={`text-[10px] px-2 py-0.2 border rounded font-bold uppercase tracking-wide ${
-                    selectedCustomer.segment === 'VIP' ? 'bg-emerald-50 text-brand-primary border-emerald-200' :
-                    selectedCustomer.segment === 'Regular' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                    selectedCustomer.segment === 'New' ? 'bg-gray-50 text-gray-700 border-gray-200' :
+                    (selectedCustomer.customerType ?? selectedCustomer.segment) === 'VIP' ? 'bg-emerald-50 text-brand-primary border-emerald-200' :
+                    (selectedCustomer.customerType ?? selectedCustomer.segment) === 'Regular' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                    (selectedCustomer.customerType ?? selectedCustomer.segment) === 'New' ? 'bg-gray-50 text-gray-700 border-gray-200' :
                     'bg-red-50 text-red-600 border-red-200'
                   }`}>
-                    {selectedCustomer.segment}
+                    {selectedCustomer.customerType ?? selectedCustomer.segment}
                   </span>
                 </div>
                 <div className="space-y-1.5 text-[12.5px]">
@@ -2620,42 +3194,22 @@ export default function CustomerSummaryView({
 
                             {/* Order Status */}
                             <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider border ${
-                                o.status === 'Fulfilled' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}>
-                                {o.status}
-                              </span>
+                              {renderStatusBadge('order', o.status)}
                             </td>
 
                             {/* Payment Status */}
                             <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                              <span className="text-[11px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                {o.paymentStatus || 'Pending'}
-                              </span>
+                              {renderStatusBadge('payment', o.paymentStatus)}
                             </td>
 
                             {/* Fulfillment Status */}
                             <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider border ${
-                                o.status === 'Fulfilled' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                  : 'bg-blue-50 text-blue-700 border-blue-200'
-                              }`}>
-                                {o.fulfillmentStatus || 'Pending'}
-                              </span>
+                              {renderStatusBadge('order', o.fulfillmentStatus)}
                             </td>
 
                             {/* Delivery Status */}
                             <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider border ${
-                                o.status === 'Fulfilled' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                              }`}>
-                                {o.deliveryStatus || 'Pending'}
-                              </span>
+                              {renderStatusBadge('delivery', o.deliveryStatus)}
                             </td>
 
                             {/* Total Amount */}
@@ -3182,10 +3736,15 @@ export default function CustomerSummaryView({
       )}
 
       {/* CUSTOMER 360 PROFILE POPUP (Image 2 & 3 layout matching Fatima Al-Sayed) */}
-      {popupCustomer && (() => {
+​       {popupCustomer && (() => {
         const details = {
-          wishlist: [],
-          abandonedCheckouts: []
+          wishlist: [] as Array<{
+            productId: string;
+            name: string;
+            price: number;
+            addedDate: string;
+            stockStatus: string;
+          }>
         };
         
         const segmentStylesPopup = {
@@ -3196,79 +3755,67 @@ export default function CustomerSummaryView({
         };
 
         const segmentLabel = popupCustomer.segment.toUpperCase();
+        const popupDisplayName = popupCustomer.name
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(' ');
 
         return (
           <div 
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-all"
-            onClick={() => setPopupCustomer(null)}
+            onClick={closePopupCustomer}
           >
             {/* Modal Box */}
             <div 
-              className="bg-white rounded-3xl border border-gray-100 shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-bg-card rounded-3xl border border-border-subtle/80 shadow-[0_24px_80px_rgba(15,23,42,0.18)] w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header section (matching image 2) */}
-              <div className="p-6 pb-4 flex items-start justify-between border-b border-gray-100">
-                <div className="flex items-center gap-4">
-                  {/* Violet Avatar */}
-                  <div className="w-12 h-12 rounded-2xl bg-[#8b5cf6] text-white flex items-center justify-center shadow-xs shrink-0">
-                    <User className="w-6 h-6" />
-                  </div>
+              <div className="p-6 pb-4 flex items-start justify-between border-b border-border-subtle/70 bg-white">
+                <div>
                   <div>
                     <div className="flex items-center gap-2.5">
-                      <h2 className="text-lg font-extrabold text-gray-900 tracking-tight">{popupCustomer.name}</h2>
-                      <span className={`text-[10px] font-extrabold px-2 py-0.5 border rounded-md tracking-wider ${segmentStylesPopup[popupCustomer.segment] || 'bg-gray-50 text-gray-600'}`}>
+                      <h2 className="text-lg font-extrabold text-text-primary tracking-tight">{popupDisplayName}</h2>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 border rounded-md tracking-wider ${segmentStylesPopup[popupCustomer.segment] || 'bg-[#4280ce]/10 text-[#4280ce] border-[#4280ce]/20'}`}>
                         {segmentLabel}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <div className="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="flex items-center gap-1">
-                        <Mail className="w-3.5 h-3.5 text-gray-400" />
+                        <Mail className="w-3.5 h-3.5 text-[#4280ce]" />
                         <span className="hover:underline">{popupCustomer.email}</span>
                       </span>
-                      <span className="text-gray-300">|</span>
-                      <span className="font-semibold text-gray-600">{popupCustomer.phone}</span>
-                      <span className="text-gray-300">|</span>
-                      <span className="font-mono text-gray-400 font-bold">ID: {popupCustomer.id}</span>
+                      <span className="text-border-subtle">|</span>
+                      <span className="font-semibold text-text-secondary">{popupCustomer.phone}</span>
+                      <span className="text-border-subtle">|</span>
+                      <span className="font-mono text-text-secondary font-bold">Customer ID: {popupCustomer.id}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Circular close button with border (matching image 2) */}
                 <button 
-                  onClick={() => setPopupCustomer(null)}
-                  className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-all cursor-pointer shadow-xxs"
+                  onClick={closePopupCustomer}
+                  className="w-10 h-10 rounded-full border border-border-subtle flex items-center justify-center hover:bg-[#4280ce]/10 text-text-secondary hover:text-[#4280ce] hover:border-[#4280ce]/20 transition-all cursor-pointer shadow-xxs"
                   aria-label="Close"
                 >
-                  <X className="w-5 h-5 text-gray-600" />
+                  <X className="w-5 h-5 text-current" />
                 </button>
               </div>
 
               {/* Tabs Section */}
-              <div className="px-6 flex gap-6 border-b border-gray-100 bg-white/50 text-sm">
-                {/* Wishlist Tab */}
-                <button
-                  onClick={() => setPopupActiveTab('wishlist')}
-                  className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
-                    popupActiveTab === 'wishlist'
-                      ? 'border-[#5b3bf5] text-[#5b3bf5] font-bold'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 font-medium'
-                  }`}
-                >
-                  <Heart className="w-4 h-4 text-[#5b3bf5]" />
-                  <span>Wishlist</span>
-                </button>
-
+              <div className="px-6 flex gap-6 border-b border-border-subtle/70 bg-white text-sm">
                 {/* Abandoned Checkout Tab */}
                 <button
                   onClick={() => setPopupActiveTab('abandoned')}
                   className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
                     popupActiveTab === 'abandoned'
-                      ? 'border-[#5b3bf5] text-[#5b3bf5] font-bold'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 font-medium'
+                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
                   }`}
                 >
-                  <ShoppingBag className="w-4 h-4 text-[#ff4d6d]" />
+                  <ShoppingBag className="w-4 h-4 text-[#ff5a67]" />
                   <span>Abandoned Checkout</span>
                 </button>
 
@@ -3277,11 +3824,11 @@ export default function CustomerSummaryView({
                   onClick={() => setPopupActiveTab('refunds')}
                   className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
                     popupActiveTab === 'refunds'
-                      ? 'border-[#5b3bf5] text-[#5b3bf5] font-bold'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 font-medium'
+                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
                   }`}
                 >
-                  <RefreshCw className="w-4 h-4 text-emerald-600" />
+                  <RefreshCw className="w-4 h-4 text-emerald-500" />
                   <span>Refund Status</span>
                 </button>
 
@@ -3290,229 +3837,399 @@ export default function CustomerSummaryView({
                   onClick={() => setPopupActiveTab('discounts')}
                   className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
                     popupActiveTab === 'discounts'
-                      ? 'border-[#5b3bf5] text-[#5b3bf5] font-bold'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 font-medium'
+                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
                   }`}
                 >
-                  <Ticket className="w-4 h-4 text-purple-600" />
+                  <Ticket className="w-4 h-4 text-[#8b5cf6]" />
                   <span>Applied Discount</span>
                 </button>
               </div>
 
-              <div className="px-6 py-3 bg-slate-50 border-b border-gray-100 text-[11px] text-gray-500">
-                Live API data is shown for customer profile and order history. Wishlist and abandoned checkout rows stay empty until those endpoints are connected.
-              </div>
-
               {/* Content Grid Area (Matching columns, styling, and data fields in Image 2 & 3) */}
               <div className="flex-1 overflow-y-auto p-6 min-h-[300px]">
-                {popupActiveTab === 'wishlist' && (
-                  <div className="bg-white border border-gray-300 rounded-xl overflow-hidden shadow-xs">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Product ID</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Product Name</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-right sm:text-left">Price</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Added Date</th>
-                            <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap">Stock Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white">
-                          {details.wishlist.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
-                              <td className="py-2.5 px-3.5 font-mono font-bold text-indigo-600 border-r border-gray-200 align-middle">
-                                {item.productId}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
-                                {item.name}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-mono font-bold text-gray-900 border-r border-gray-200 align-middle text-right sm:text-left">
-                                {formatCurrencyAmount(item.price, popupCustomer?.currencyCode)}
-                              </td>
-                              <td className="py-2.5 px-3.5 text-gray-600 font-medium border-r border-gray-200 align-middle">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                                  {item.addedDate}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3.5 align-middle">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                                  {item.stockStatus}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
                 {popupActiveTab === 'abandoned' && (
                   <div className="bg-white border border-gray-300 rounded-xl overflow-hidden shadow-xs">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Checkout ID</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Product Name</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Price</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-center sm:text-left">Qty</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Subtotal</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Abandoned At</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Recovery Status</th>
-                            <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap text-center">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white">
-                          {details.abandonedCheckouts.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
-                              <td className="py-2.5 px-3.5 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
-                                {item.checkoutId}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
-                                {item.productName}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-mono text-gray-900 font-semibold border-r border-gray-200 align-middle">
-                                {formatCurrencyAmount(item.price, popupCustomer?.currencyCode)}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-mono text-gray-900 border-r border-gray-200 align-middle text-center sm:text-left">
-                                {item.qty}
-                              </td>
-                              <td className="py-2.5 px-3.5 font-mono font-bold text-[#5b3bf5] border-r border-gray-200 align-middle">
-                                {formatCurrencyAmount(item.subtotal, popupCustomer?.currencyCode)}
-                              </td>
-                              <td className="py-2.5 px-3.5 text-gray-600 font-medium border-r border-gray-200 align-middle">
-                                {item.abandonedAt}
-                              </td>
-                              <td className="py-2.5 px-3.5 border-r border-gray-200 align-middle">
-                                <span className="inline-flex items-center gap-1.5 text-emerald-700 font-bold text-[11px]">
-                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                                  {item.recoveryStatus}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3.5 align-middle text-center">
-                                <button
-                                  onClick={() => {
-                                    alert(`Recovery action triggered: Retargeting email sent to ${popupCustomer.email} for ${item.productName}.`);
-                                  }}
-                                  className="bg-[#8b5cf6]/10 hover:bg-[#8b5cf6]/20 text-[#8b5cf6] border border-[#8b5cf6]/20 px-3 py-1.5 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-xxs hover:scale-[1.03]"
-                                >
-                                  <Send className="w-3 h-3 text-[#8b5cf6]" />
-                                  Send
-                                </button>
-                              </td>
+                      {isAbandonedCheckoutsLoading ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          Loading abandoned checkouts...
+                        </div>
+                      ) : abandonedCheckoutsError ? (
+                          <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          No abandoned checkout records found for this customer.
+                        </div>
+                      ) : abandonedCheckoutRows.length === 0 ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          No abandoned checkout records found for this customer.
+                        </div>
+                      ) : (
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Checkout ID</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Product Name</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Variant</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Variant Price</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Price</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-center sm:text-left">Qty</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Abandoned At</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white">
+                            {abandonedCheckoutPaginatedRows.map((item, idx) => {
+                              const rowCurrency = item.currencyCode || popupCustomer?.currencyCode;
+                              const lineCount = Math.max(item.productNames.length, item.variantTitles.length, item.variantPrices.length, 1);
+
+                              return (
+                                <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
+                                  <td className="py-2.5 px-3.5 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
+                                    {item.checkoutId}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                    <div className="flex flex-col gap-0.5">
+                                      {Array.from({ length: lineCount }, (_, lineIdx) => (
+                                        <span key={`${item.id}-product-${lineIdx}`}>
+                                          {item.productNames[lineIdx] || '-'}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                    <div className="flex flex-col gap-0.5">
+                                      {Array.from({ length: lineCount }, (_, lineIdx) => (
+                                        <span key={`${item.id}-variant-${lineIdx}`}>
+                                          {item.variantTitles[lineIdx] || '-'}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-mono font-semibold text-gray-900 border-r border-gray-200 align-middle">
+                                    <div className="flex flex-col gap-0.5">
+                                      {Array.from({ length: lineCount }, (_, lineIdx) => {
+                                        const variantPrice = item.variantPrices[lineIdx];
+                                        return (
+                                          <span key={`${item.id}-variant-price-${lineIdx}`}>
+                                            {variantPrice !== null && variantPrice !== undefined ? formatCurrencyAmount(variantPrice, rowCurrency) : '-'}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-mono text-gray-900 font-semibold border-r border-gray-200 align-middle">
+                                    {formatCurrencyAmount(item.price, rowCurrency)}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-mono text-gray-900 border-r border-gray-200 align-middle text-center sm:text-left">
+                                    {item.qty}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 text-gray-600 font-medium border-r border-gray-200 align-middle">
+                                    {item.abandonedAt}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
+
+                    {!isAbandonedCheckoutsLoading && !abandonedCheckoutsError && abandonedCheckoutRows.length > 0 && (
+                      <div className="border-t border-gray-200 px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 bg-bg-card text-xs text-text-secondary">
+                        <div>
+                          Showing <span className="font-semibold text-text-primary">{Math.min((abandonedCheckoutPage - 1) * abandonedCheckoutPageSize + 1, abandonedCheckoutRows.length)}</span> to{' '}
+                          <span className="font-semibold text-text-primary">{Math.min(abandonedCheckoutPage * abandonedCheckoutPageSize, abandonedCheckoutRows.length)}</span> of{' '}
+                          <span className="font-semibold text-text-primary">{abandonedCheckoutRows.length}</span> records
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setAbandonedCheckoutPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={abandonedCheckoutPage === 1}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Previous
+                          </button>
+
+                          {Array.from({ length: Math.min(5, abandonedCheckoutTotalPages) }, (_, i) => {
+                            let pageNum = abandonedCheckoutPage;
+                            if (abandonedCheckoutPage <= 3) pageNum = i + 1;
+                            else if (abandonedCheckoutPage >= abandonedCheckoutTotalPages - 2) pageNum = abandonedCheckoutTotalPages - 4 + i;
+                            else pageNum = abandonedCheckoutPage - 2 + i;
+
+                            if (pageNum < 1 || pageNum > abandonedCheckoutTotalPages) return null;
+
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setAbandonedCheckoutPage(pageNum)}
+                                className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
+                                  abandonedCheckoutPage === pageNum
+                                    ? 'bg-brand-primary border-brand-primary text-white'
+                                    : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+
+                          <button
+                            onClick={() => setAbandonedCheckoutPage((prev) => Math.min(prev + 1, abandonedCheckoutTotalPages))}
+                            disabled={abandonedCheckoutPage === abandonedCheckoutTotalPages}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {popupActiveTab === 'refunds' && (
                   <div className="bg-white border border-gray-300 rounded-xl overflow-hidden shadow-xs">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Refund ID</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Date</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-right">Amount</th>
-                            <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white">
-                          {!popupCustomer.refunds || popupCustomer.refunds.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className="py-12 text-center text-gray-500 font-medium">
-                                <div className="flex flex-col items-center justify-center gap-1.5">
-                                  <RefreshCw className="w-7 h-7 text-gray-300" />
-                                  <span>No refunds found for this customer.</span>
-                                </div>
-                              </td>
+                      {isRefundRowsLoading ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          Loading refund rows...
+                        </div>
+                      ) : refundRowsError ? (
+                          <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          No refunds found for this customer.
+                        </div>
+                      ) : refundRows.length === 0 ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          No refunds found for this customer.
+                        </div>
+                      ) : (
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Refund ID</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Date</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Product Name</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-center">Quantity</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">SKU</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-right">Amount</th>
+                              <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap text-center">Status</th>
                             </tr>
-                          ) : (
-                            popupCustomer.refunds.map((ref, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
-                                <td className="py-2.5 px-3.5 font-mono font-bold text-indigo-600 border-r border-gray-200 align-middle">
-                                  {ref.id}
-                                </td>
-                                <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
-                                  {ref.date}
-                                </td>
-                                <td className="py-2.5 px-3.5 font-mono font-bold text-emerald-600 border-r border-gray-200 align-middle text-right">
-                                  {formatCurrencyAmount(ref.amount, popupCustomer?.currencyCode)}
-                                </td>
-                                <td className="py-2.5 px-3.5 align-middle text-center">
-                                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                                    ref.status.toLowerCase() === 'approved' || ref.status.toLowerCase() === 'refunded'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : ref.status.toLowerCase() === 'pending' || ref.status.toLowerCase() === 'processing'
-                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                      : 'bg-gray-50 text-gray-600 border-gray-200'
-                                  }`}>
-                                    {ref.status}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white">
+                            {refundPaginatedRows.map((ref, idx) => {
+                              const normalizedStatus = ref.status.toLowerCase();
+                              const statusStyle =
+                                normalizedStatus === 'approved' ||
+                                normalizedStatus === 'refunded' ||
+                                normalizedStatus === 'success'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : normalizedStatus === 'pending' || normalizedStatus === 'processing'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-gray-50 text-gray-600 border-gray-200';
+
+                              return (
+                                <tr key={`${ref.id}-${idx}`} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
+                                  <td className="py-2.5 px-3.5 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
+                                    {ref.id}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                    {ref.date}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                    {ref.productName || '-'}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 text-center border-r border-gray-200 align-middle">
+                                    {ref.quantity ?? '-'}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-mono text-gray-700 border-r border-gray-200 align-middle">
+                                    {ref.sku || '-'}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 font-mono font-bold text-emerald-600 border-r border-gray-200 align-middle text-right">
+                                    {formatCurrencyAmount(ref.amount, ref.currencyCode || popupCustomer?.currencyCode)}
+                                  </td>
+                                  <td className="py-2.5 px-3.5 align-middle text-center">
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${statusStyle}`}>
+                                      {ref.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
+                    {!isRefundRowsLoading && !refundRowsError && refundRows.length > 0 && (
+                      <div className="border-t border-gray-200 px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 bg-bg-card text-xs text-text-secondary">
+                        <div>
+                          Showing <span className="font-semibold text-text-primary">{Math.min((refundPage - 1) * refundPageSize + 1, refundRows.length)}</span> to{' '}
+                          <span className="font-semibold text-text-primary">{Math.min(refundPage * refundPageSize, refundRows.length)}</span> of{' '}
+                          <span className="font-semibold text-text-primary">{refundRows.length}</span> records
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setRefundPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={refundPage === 1}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Previous
+                          </button>
+
+                          {Array.from({ length: Math.min(5, refundTotalPages) }, (_, i) => {
+                            let pageNum = refundPage;
+                            if (refundPage <= 3) pageNum = i + 1;
+                            else if (refundPage >= refundTotalPages - 2) pageNum = refundTotalPages - 4 + i;
+                            else pageNum = refundPage - 2 + i;
+
+                            if (pageNum < 1 || pageNum > refundTotalPages) return null;
+
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setRefundPage(pageNum)}
+                                className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
+                                  refundPage === pageNum
+                                    ? 'bg-brand-primary border-brand-primary text-white'
+                                    : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+
+                          <button
+                            onClick={() => setRefundPage((prev) => Math.min(prev + 1, refundTotalPages))}
+                            disabled={refundPage === refundTotalPages}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {popupActiveTab === 'discounts' && (
                   <div className="bg-white border border-gray-300 rounded-xl overflow-hidden shadow-xs">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Coupon Code</th>
-                            <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Description</th>
-                            <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white">
-                          {!popupCustomer.discounts || popupCustomer.discounts.length === 0 ? (
-                            <tr>
-                              <td colSpan={3} className="py-12 text-center text-gray-500 font-medium">
-                                <div className="flex flex-col items-center justify-center gap-1.5">
-                                  <Ticket className="w-7 h-7 text-gray-300" />
-                                  <span>No discounts found for this customer.</span>
-                                </div>
-                              </td>
+                      {isDiscountRowsLoading ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          Loading discount rows...
+                        </div>
+                      ) : discountRowsError ? (
+                          <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                              No discounts found for this customer.
+                        </div>
+                      ) : discountRows.length === 0 ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                          No discounts found for this customer.
+                        </div>
+                      ) : (
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Order Id</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Coupon Code</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Percentage</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Amount</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Description</th>
+                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap">Order Amount</th>
+                              <th className="py-2.5 px-3.5 font-extrabold whitespace-nowrap">Discount Amount</th>
                             </tr>
-                          ) : (
-                            popupCustomer.discounts.map((disc, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
+                          </thead>
+                          <tbody className="bg-white">
+                            {discountPaginatedRows.map((disc, idx) => (
+                              <tr key={`${disc.orderId || 'order'}-${disc.code}-${idx}`} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
+                                <td className="py-2.5 px-3.5 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
+                                  {disc.orderId || '-'}
+                                </td>
                                 <td className="py-2.5 px-3.5 font-mono font-black text-indigo-600 border-r border-gray-200 align-middle">
                                   <span className="bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded text-xs">
-                                    {disc.code}
+                                    {disc.code || '-'}
                                   </span>
+                                </td>
+                                <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                  {disc.percentage !== undefined && disc.percentage !== null && disc.percentage !== ''
+                                    ? `${disc.percentage}%`
+                                    : '-'}
+                                </td>
+                                <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                  {disc.amount !== undefined && disc.amount !== null && disc.amount !== ''
+                                    ? formatCurrencyAmount(Number(disc.amount), disc.currencyCode || popupCustomer?.currencyCode)
+                                    : '-'}
                                 </td>
                                 <td className="py-2.5 px-3.5 font-medium text-gray-800 border-r border-gray-200 align-middle">
-                                  {disc.description}
+                                  {disc.description || '-'}
                                 </td>
-                                <td className="py-2.5 px-3.5 align-middle text-center">
-                                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                                    disc.status.toLowerCase() === 'active'
-                                      ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                      : 'bg-gray-100 text-gray-500 border-gray-200'
-                                  }`}>
-                                    {disc.status}
-                                  </span>
+                                <td className="py-2.5 px-3.5 font-mono font-bold text-emerald-600 border-r border-gray-200 align-middle">
+                                  {disc.orderPrice !== undefined && disc.orderPrice !== null
+                                    ? formatCurrencyAmount(disc.orderPrice, disc.currencyCode || popupCustomer?.currencyCode)
+                                    : '-'}
+                                </td>
+                                <td className="py-2.5 px-3.5 font-mono font-bold text-emerald-600 align-middle">
+                                  {disc.discountAmount !== undefined && disc.discountAmount !== null
+                                    ? formatCurrencyAmount(disc.discountAmount, disc.currencyCode || popupCustomer?.currencyCode)
+                                    : '-'}
                                 </td>
                               </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
+
+                    {!isDiscountRowsLoading && !discountRowsError && discountRows.length > 0 && (
+                      <div className="border-t border-gray-200 px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 bg-bg-card text-xs text-text-secondary">
+                        <div>
+                          Showing <span className="font-semibold text-text-primary">{Math.min((discountPage - 1) * discountPageSize + 1, discountRows.length)}</span> to{' '}
+                          <span className="font-semibold text-text-primary">{Math.min(discountPage * discountPageSize, discountRows.length)}</span> of{' '}
+                          <span className="font-semibold text-text-primary">{discountRows.length}</span> records
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setDiscountPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={discountPage === 1}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Previous
+                          </button>
+
+                          {Array.from({ length: Math.min(5, discountTotalPages) }, (_, i) => {
+                            let pageNum = discountPage;
+                            if (discountPage <= 3) pageNum = i + 1;
+                            else if (discountPage >= discountTotalPages - 2) pageNum = discountTotalPages - 4 + i;
+                            else pageNum = discountPage - 2 + i;
+
+                            if (pageNum < 1 || pageNum > discountTotalPages) return null;
+
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setDiscountPage(pageNum)}
+                                className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
+                                  discountPage === pageNum
+                                    ? 'bg-brand-primary border-brand-primary text-white'
+                                    : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+
+                          <button
+                            onClick={() => setDiscountPage((prev) => Math.min(prev + 1, discountTotalPages))}
+                            disabled={discountPage === discountTotalPages}
+                            className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

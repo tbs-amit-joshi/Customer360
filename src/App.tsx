@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Check, Settings, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Check, Settings, X, RefreshCw } from 'lucide-react';
 
 // Types
-import { Lead, Complaint, Customer, Campaign, EmailTemplate, ActivityLog, SettingsState } from './types';
+import { Lead, Complaint, Customer, Campaign, EmailTemplate, ActivityLog, SettingsState, CustomerSegment } from './types';
 
 // Seed Data
 import { 
@@ -12,14 +12,61 @@ import {
 
 // View Components
 import CustomerSummaryView from './components/CustomerSummaryView';
+import CustomerDataLoader from './components/CustomerDataLoader';
 import SettingsView from './components/SettingsView';
-import { fetchCustomer360Customers } from './api/customerSync';
+import { fetchCustomer360Customers, type CustomerSyncOptions } from './api/customerSync';
+
+type CustomerQueryFilters = Pick<
+  CustomerSyncOptions,
+  | 'customerType'
+  | 'customerNameOrId'
+  | 'emailOrPhone'
+  | 'country'
+  | 'lifetimeSpend'
+  | 'orderId'
+  | 'orderDateFrom'
+  | 'orderDateTo'
+  | 'productName'
+  | 'productVariant'
+>;
+
+const EMPTY_CUSTOMER_QUERY_FILTERS: CustomerQueryFilters = {
+  customerType: 'All',
+  customerNameOrId: '',
+  emailOrPhone: '',
+  country: '',
+  lifetimeSpend: '',
+  orderId: '',
+  orderDateFrom: '',
+  orderDateTo: '',
+  productName: '',
+  productVariant: ''
+};
+
+const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFilters): boolean => {
+  const keys: (keyof CustomerQueryFilters)[] = [
+    'customerType',
+    'customerNameOrId',
+    'emailOrPhone',
+    'country',
+    'lifetimeSpend',
+    'orderId',
+    'orderDateFrom',
+    'orderDateTo',
+    'productName',
+    'productVariant'
+  ];
+
+  return keys.every((key) => `${a[key] ?? ''}` === `${b[key] ?? ''}`);
+};
 
 export default function App() {
   // Inter-tab parameter passing (e.g. looking up a specific customer by name)
   const [passedCustomerName, setPassedCustomerName] = useState<string | undefined>(undefined);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [customerRefreshToken, setCustomerRefreshToken] = useState(0);
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<'All' | CustomerSegment>('All');
+  const [customerQueryFilters, setCustomerQueryFilters] = useState<CustomerQueryFilters>(EMPTY_CUSTOMER_QUERY_FILTERS);
 
   // Run data migration to guarantee updated data (Emma Watson SH-90412 and slate gray theme) on first boot
   const migration_version = 'v7';
@@ -47,6 +94,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isCustomersLoading, setIsCustomersLoading] = useState<boolean>(true);
   const [customerLoadError, setCustomerLoadError] = useState<string | null>(null);
+  const [isRefreshingCustomerData, setIsRefreshingCustomerData] = useState(false);
 
   const [logs, setLogs] = useState<ActivityLog[]>(() => {
     const saved = localStorage.getItem('tech_crm_logs');
@@ -83,46 +131,83 @@ export default function App() {
     localStorage.setItem('tech_crm_settings', JSON.stringify(settings));
   }, [settings]);
 
+  const loadCustomers = useCallback(async (signal?: AbortSignal) => {
+    const controller = new AbortController();
+    const activeSignal = signal || controller.signal;
+
+    setIsCustomersLoading(true);
+    setCustomerLoadError(null);
+
+    try {
+      const liveCustomers = await fetchCustomer360Customers({
+        customerType: customerTypeFilter,
+        customerNameOrId: customerQueryFilters.customerNameOrId,
+        emailOrPhone: customerQueryFilters.emailOrPhone,
+        country: customerQueryFilters.country,
+        lifetimeSpend: customerQueryFilters.lifetimeSpend,
+        orderId: customerQueryFilters.orderId,
+        orderDateFrom: customerQueryFilters.orderDateFrom,
+        orderDateTo: customerQueryFilters.orderDateTo,
+        productName: customerQueryFilters.productName,
+        productVariant: customerQueryFilters.productVariant,
+        signal: activeSignal
+      });
+
+      if (activeSignal.aborted) {
+        return;
+      }
+
+      setCustomers(liveCustomers);
+    } catch (error) {
+      if (activeSignal.aborted) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : 'Failed to load live customer data.';
+      setCustomerLoadError(message);
+      setCustomers([]);
+    } finally {
+      if (!activeSignal.aborted) {
+        setIsCustomersLoading(false);
+      }
+    }
+  }, [
+    customerTypeFilter,
+    customerQueryFilters.customerNameOrId,
+    customerQueryFilters.emailOrPhone,
+    customerQueryFilters.country,
+    customerQueryFilters.lifetimeSpend,
+    customerQueryFilters.orderId,
+    customerQueryFilters.orderDateFrom,
+    customerQueryFilters.orderDateTo,
+    customerQueryFilters.productName,
+    customerQueryFilters.productVariant
+  ]);
+
   useEffect(() => {
     const controller = new AbortController();
-    let isActive = true;
-
-    const loadCustomers = async () => {
-      setIsCustomersLoading(true);
-      setCustomerLoadError(null);
-
-      try {
-        const liveCustomers = await fetchCustomer360Customers({
-          signal: controller.signal
-        });
-
-        if (!isActive) {
-          return;
-        }
-
-        setCustomers(liveCustomers);
-      } catch (error) {
-        if (!isActive || controller.signal.aborted) {
-          return;
-        }
-
-        const message = error instanceof Error ? error.message : 'Failed to load live customer data.';
-        setCustomerLoadError(message);
-        setCustomers([]);
-      } finally {
-        if (isActive) {
-          setIsCustomersLoading(false);
-        }
-      }
-    };
-
-    void loadCustomers();
+    void loadCustomers(controller.signal);
 
     return () => {
-      isActive = false;
       controller.abort();
     };
-  }, [customerRefreshToken]);
+  }, [customerRefreshToken, loadCustomers]);
+
+  const handleCloseSettings = useCallback(async () => {
+    if (isRefreshingCustomerData) {
+      return;
+    }
+
+    setIsRefreshingCustomerData(true);
+    const controller = new AbortController();
+
+    try {
+      await loadCustomers(controller.signal);
+    } finally {
+      setIsRefreshingCustomerData(false);
+      setIsSettingsOpen(false);
+    }
+  }, [isRefreshingCustomerData, loadCustomers]);
 
   // Dynamic Theme Custom Properties Sync
   useEffect(() => {
@@ -262,7 +347,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-bg-viewport flex flex-col font-sans select-none antialiased text-text-primary">
-      
       {/* GLOBAL TOAST ALERTS */}
       {globalToast && (
         <div id="global-toast-notifier" className="fixed top-5 right-5 z-50 bg-brand-primary text-white text-xs font-semibold px-4.5 py-3 rounded-lg shadow-xl flex items-center gap-2 border border-brand-primary/25 animate-bounce">
@@ -271,81 +355,44 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER NAVIGATION (Shopify Polaris style matching StaffSignal) */}
-      <header className="bg-bg-card border-b border-border-subtle sticky top-0 z-40 w-full flex flex-col">
-        {/* Top Header Row */}
-        <div className="px-6 py-3.5 flex items-center justify-between border-b border-border-subtle/50 bg-bg-neutral/20">
-          {/* Brand/Store Info */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-8 rounded-lg bg-brand-primary text-white font-bold flex items-center justify-center text-xs shadow-sm ring-2 ring-brand-primary/10">
-              360
+      {isSettingsOpen ? (
+        <div className="min-h-screen flex flex-col bg-bg-viewport">
+          <header className="bg-bg-card border-b border-border-subtle sticky top-0 z-40 w-full flex flex-col">
+            <div className="px-6 py-3.5 flex items-center justify-between border-b border-border-subtle/50 bg-bg-neutral/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-8 rounded-lg bg-brand-primary text-white font-bold flex items-center justify-center text-xs shadow-sm ring-2 ring-brand-primary/10">
+                  360
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-extrabold text-text-primary tracking-tight">System Settings</span>
+                  <span className="text-[10px] bg-brand-bg-active text-brand-primary font-bold px-2 py-0.5 rounded-full border border-brand-primary/10">
+                    Customer 360
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleCloseSettings}
+                  disabled={isRefreshingCustomerData}
+                  className="p-2.5 text-text-secondary hover:text-brand-primary hover:bg-brand-bg-active border border-border-subtle/40 rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-xs bg-bg-card hover:border-brand-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Close Settings"
+                  id="settings-close-button"
+                >
+                  {isRefreshingCustomerData ? (
+                    <RefreshCw className="w-4.5 h-4.5 animate-spin" />
+                  ) : (
+                    <X className="w-4.5 h-4.5" />
+                  )}
+                  <span className="text-xs font-bold tracking-tight pr-1">Close</span>
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold text-text-primary tracking-tight">Customer 360</span>
-              <span className="text-[10px] bg-brand-bg-active text-brand-primary font-bold px-2 py-0.5 rounded-full border border-brand-primary/10">
-                Shopify Plus
-              </span>
-            </div>
-          </div>
+          </header>
 
-          {/* Right Profile & Context replaced with Settings button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2.5 text-text-secondary hover:text-brand-primary hover:bg-brand-bg-active border border-border-subtle/40 rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-xs bg-bg-card hover:border-brand-primary/20"
-              title="Open Settings"
-              id="settings-trigger-button"
-            >
-              <Settings className="w-4.5 h-4.5" />
-              <span className="text-xs font-bold tracking-tight pr-1">Settings</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* MAIN LAYOUT SPACE */}
-      <main id="app-viewport-content" className="flex-1 overflow-x-auto bg-bg-viewport">
-        <div className="pt-3 pb-6 px-6 md:pt-4 md:pb-8 md:px-8 w-full max-w-full mx-auto min-h-full flex flex-col gap-5">
-          
-          {/* Customer Summary Module */}
-          <CustomerSummaryView 
-            customers={customers}
-            leads={leads}
-            complaints={complaints}
-            onUpdateCustomer={handleUpdateCustomer}
-            onNavigateToLead={(leadNo) => showToast(`Navigation to Lead "${leadNo}" is disabled in grid-only view.`)}
-            onNavigateToTemplate={(templateName) => showToast(`Navigation to Template "${templateName}" is disabled in grid-only view.`)}
-            initialSelectedCustomerName={passedCustomerName}
-            onClearSelectedCustomerName={() => setPassedCustomerName(undefined)}
-            isLoadingCustomers={isCustomersLoading}
-            customerLoadError={customerLoadError}
-            onRefreshCustomers={() => setCustomerRefreshToken((token) => token + 1)}
-          />
-
-        </div>
-      </main>
-
-      {/* SYSTEM SETTINGS MODAL */}
-      {isSettingsOpen && (
-        <div id="settings-modal-overlay" className="fixed inset-0 z-50 flex flex-col bg-bg-card animate-in fade-in duration-200">
-          {/* Modal Header */}
-          <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between bg-bg-neutral/10">
-            <div className="flex items-center gap-2.5">
-              <Settings className="w-5 h-5 text-brand-primary animate-spin" style={{ animationDuration: '8s' }} />
-              <span className="text-sm font-bold text-text-primary tracking-tight">Apex System Control Center</span>
-            </div>
-            <button 
-              onClick={() => setIsSettingsOpen(false)}
-              className="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-neutral transition-all cursor-pointer border border-border-subtle"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Modal Body Scroll Container */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-bg-viewport">
-            <div className="w-full max-w-full mx-auto px-1 md:px-4">
-              <SettingsView 
+          <main id="settings-viewport-content" className="flex-1 overflow-y-auto bg-bg-viewport">
+            <div className="w-full max-w-full mx-auto px-6 md:px-8 py-6 md:py-8">
+              <SettingsView
                 settings={settings}
                 onUpdateSettings={(newSettings) => {
                   setSettings(newSettings);
@@ -357,10 +404,87 @@ export default function App() {
                 }}
               />
             </div>
-          </div>
-        </div>
-      )}
+          </main>
 
+          {isRefreshingCustomerData && (
+            <CustomerDataLoader overlay />
+          )}
+        </div>
+      ) : (
+        <>
+          {/* HEADER NAVIGATION (Shopify Polaris style matching StaffSignal) */}
+          <header className="bg-bg-card border-b border-border-subtle sticky top-0 z-40 w-full flex flex-col">
+            {/* Top Header Row */}
+            <div className="px-6 py-3.5 flex items-center justify-between border-b border-border-subtle/50 bg-bg-neutral/20">
+              {/* Brand/Store Info */}
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-8 rounded-lg bg-brand-primary text-white font-bold flex items-center justify-center text-xs shadow-sm ring-2 ring-brand-primary/10">
+                  360
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-extrabold text-text-primary tracking-tight">Customer 360</span>
+                  <span className="text-[10px] bg-brand-bg-active text-brand-primary font-bold px-2 py-0.5 rounded-full border border-brand-primary/10">
+                    Shopify Plus
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Profile & Context replaced with Settings button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="p-2.5 text-text-secondary hover:text-brand-primary hover:bg-brand-bg-active border border-border-subtle/40 rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-xs bg-bg-card hover:border-brand-primary/20"
+                  title="Open Settings"
+                  id="settings-trigger-button"
+                >
+                  <Settings className="w-4.5 h-4.5" />
+                  <span className="text-xs font-bold tracking-tight pr-1">Settings</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* MAIN LAYOUT SPACE */}
+          <main id="app-viewport-content" className="flex-1 overflow-x-auto bg-bg-viewport">
+            <div className="pt-3 pb-6 px-6 md:pt-4 md:pb-8 md:px-8 w-full max-w-full mx-auto min-h-full flex flex-col gap-5">
+              {/* Customer Summary Module */}
+              <CustomerSummaryView
+                customers={customers}
+                leads={leads}
+                complaints={complaints}
+                onUpdateCustomer={handleUpdateCustomer}
+                onNavigateToLead={(leadNo) => showToast(`Navigation to Lead "${leadNo}" is disabled in grid-only view.`)}
+                onNavigateToTemplate={(templateName) => showToast(`Navigation to Template "${templateName}" is disabled in grid-only view.`)}
+                initialSelectedCustomerName={passedCustomerName}
+                onClearSelectedCustomerName={() => setPassedCustomerName(undefined)}
+                isLoadingCustomers={isCustomersLoading}
+                customerLoadError={customerLoadError}
+                onRefreshCustomers={(customerType) => {
+                  setCustomerTypeFilter(customerType);
+                  setCustomerRefreshToken((token) => token + 1);
+                }}
+                onCustomerQueryChange={(filters) => {
+                  const nextFilters: CustomerQueryFilters = {
+                    customerType: filters.customerType ?? 'All',
+                    customerNameOrId: filters.customerNameOrId ?? '',
+                    emailOrPhone: filters.emailOrPhone ?? '',
+                    country: filters.country ?? '',
+                    lifetimeSpend: filters.lifetimeSpend ?? '',
+                    orderId: filters.orderId ?? '',
+                    orderDateFrom: filters.orderDateFrom ?? '',
+                    orderDateTo: filters.orderDateTo ?? '',
+                    productName: filters.productName ?? '',
+                    productVariant: filters.productVariant ?? ''
+                  };
+
+                  setCustomerTypeFilter(nextFilters.customerType ?? 'All');
+                  setCustomerQueryFilters((current) => (isSameCustomerQueryFilters(current, nextFilters) ? current : nextFilters));
+                }}
+              />
+            </div>
+          </main>
+        </>
+      )}
     </div>
   );
 }

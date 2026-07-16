@@ -20,7 +20,8 @@ export const formatCurrencyAmount = (
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: resolvedCurrency,
-      maximumFractionDigits: 0
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
     }).format(amount);
   } catch {
     return `${resolvedCurrency} ${amount.toLocaleString(locale)}`;

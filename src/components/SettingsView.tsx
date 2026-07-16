@@ -4,6 +4,10 @@ import {
   Play, Pause, Calendar, Clock, Globe, Shield, Send, CheckCircle2, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Users, Zap
 } from 'lucide-react';
+import {
+  fetchCustomerSegmentationSettings,
+  saveCustomerSegmentationSettings,
+} from '../api/customerSegmentation';
 
 interface CampaignTemplate {
   id: string;
@@ -103,6 +107,148 @@ function getNextDayString(dateStr: string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+type SegmentationFieldErrors = {
+  minSpend: string;
+  maxSpend: string;
+  minOrderCount: string;
+  maxOrderCount: string;
+};
+
+const EMPTY_SEGMENTATION_FIELD_ERRORS: SegmentationFieldErrors = {
+  minSpend: '',
+  maxSpend: '',
+  minOrderCount: '',
+  maxOrderCount: '',
+};
+
+function formatIndianInteger(value: string): string {
+  const digits = value.replace(/\D/g, '');
+
+  if (!digits) {
+    return '';
+  }
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  const lastThree = digits.slice(-3);
+  const leadingDigits = digits.slice(0, -3);
+  const formattedLeading = leadingDigits.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return `${formattedLeading},${lastThree}`;
+}
+
+function formatSpendInputValue(value: string): string {
+  const cleaned = value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+
+  if (!cleaned) {
+    return '';
+  }
+
+  const dotIndex = cleaned.indexOf('.');
+  const integerRaw = dotIndex === -1 ? cleaned : cleaned.slice(0, dotIndex);
+  const decimalRaw = dotIndex === -1 ? '' : cleaned.slice(dotIndex + 1).replace(/\./g, '');
+  const integerDigits = integerRaw.replace(/\D/g, '');
+  const formattedInteger = formatIndianInteger(integerDigits);
+
+  if (dotIndex === -1) {
+    return formattedInteger;
+  }
+
+  return `${formattedInteger || '0'}.${decimalRaw}`;
+}
+
+function sanitizeOrderCountInput(value: string): string {
+  const cleaned = value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+  const dotIndex = cleaned.indexOf('.');
+
+  if (dotIndex === -1) {
+    return cleaned;
+  }
+
+  return `${cleaned.slice(0, dotIndex)}.${cleaned.slice(dotIndex + 1).replace(/\./g, '')}`;
+}
+
+function parseSpendValue(value: string): number {
+  const cleaned = value.replace(/,/g, '').trim();
+  return cleaned ? Number(cleaned) : NaN;
+}
+
+function parseOrderCountValue(value: string): number {
+  const cleaned = value.replace(/,/g, '').trim();
+  return cleaned ? Number(cleaned) : NaN;
+}
+
+function formatOrderCountDisplay(value: string): string {
+  return formatIndianInteger(value.replace(/,/g, '').trim());
+}
+
+function isWholeNumberValue(value: string): boolean {
+  const cleaned = value.replace(/,/g, '').trim();
+  return cleaned !== '' && /^\d+$/.test(cleaned);
+}
+
+function validateSegmentationRangeForm(values: {
+  minSpend: string;
+  maxSpend: string;
+  minOrderCount: string;
+  maxOrderCount: string;
+}): SegmentationFieldErrors {
+  const errors: SegmentationFieldErrors = { ...EMPTY_SEGMENTATION_FIELD_ERRORS };
+
+  const minSpendRaw = values.minSpend.trim();
+  const maxSpendRaw = values.maxSpend.trim();
+  const minOrderCountRaw = values.minOrderCount.trim();
+  const maxOrderCountRaw = values.maxOrderCount.trim();
+
+  const minSpendValue = parseSpendValue(minSpendRaw);
+  const maxSpendValue = maxSpendRaw ? parseSpendValue(maxSpendRaw) : NaN;
+  const minOrderCountValue = parseOrderCountValue(minOrderCountRaw);
+  const maxOrderCountValue = maxOrderCountRaw ? parseOrderCountValue(maxOrderCountRaw) : NaN;
+
+  if (!minSpendRaw) {
+    errors.minSpend = 'Min spend is required.';
+  } else if (!Number.isFinite(minSpendValue)) {
+    errors.minSpend = 'Enter a valid spend amount.';
+  } else if (minSpendValue < 0) {
+    errors.minSpend = 'Min spend cannot be negative.';
+  }
+
+  if (maxSpendRaw) {
+    if (!Number.isFinite(maxSpendValue)) {
+      errors.maxSpend = 'Enter a valid spend amount.';
+    } else if (maxSpendValue < 0) {
+      errors.maxSpend = 'Max spend cannot be negative.';
+    } else if (!errors.minSpend && maxSpendValue < minSpendValue) {
+      errors.maxSpend = `Max value cannot be less than Min value (${formatSpendInputValue(minSpendRaw)}).`;
+    }
+  }
+
+  if (!minOrderCountRaw) {
+    errors.minOrderCount = 'Min orders is required.';
+  } else if (!isWholeNumberValue(minOrderCountRaw)) {
+    errors.minOrderCount = 'Order count must be a whole number';
+  } else if (!Number.isFinite(minOrderCountValue)) {
+    errors.minOrderCount = 'Enter a valid order count.';
+  } else if (minOrderCountValue <= 0) {
+    errors.minOrderCount = 'Min orders must be greater than 0.';
+  }
+
+  if (maxOrderCountRaw) {
+    if (!isWholeNumberValue(maxOrderCountRaw)) {
+      errors.maxOrderCount = 'Order count must be a whole number';
+    } else if (!Number.isFinite(maxOrderCountValue)) {
+      errors.maxOrderCount = 'Enter a valid order count.';
+    } else if (maxOrderCountValue < 0) {
+      errors.maxOrderCount = 'Max orders cannot be negative.';
+    } else if (!errors.minOrderCount && maxOrderCountValue < minOrderCountValue) {
+      errors.maxOrderCount = `Max value cannot be less than Min value (${formatOrderCountDisplay(minOrderCountRaw)}).`;
+    }
+  }
+
+  return errors;
+}
+
 function getTriggerCadenceDescription(a: CampaignAutomation, templates?: CampaignTemplate[]): string {
   const template = templates?.find(t => t.id === a.templateId);
   if (template && template.eventType) {
@@ -150,7 +296,7 @@ function getTriggerCadenceDescription(a: CampaignAutomation, templates?: Campaig
     } else if (a.condition === 'Tag Added') {
       return 'On Tag Added';
     } else if (a.condition === 'Min Spend Threshold Reached') {
-      return `On Min Spend > ₹${(a.minSpendThreshold || 50000).toLocaleString()}`;
+      return `On Min Spend > â‚¹${(a.minSpendThreshold || 50000).toLocaleString()}`;
     }
     return `On ${a.condition || 'State Change'}`;
   }
@@ -172,19 +318,21 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [smtpPort, setSmtpPort] = useState('587');
   const [smtpSecurity, setSmtpSecurity] = useState('STARTTLS (Port 587 - Recommended)');
   const [smtpUsername, setSmtpUsername] = useState('relay@techcrm-store.com');
-  const [smtpPassword, setSmtpPassword] = useState('•••••••••••••••••••••');
+  const [smtpPassword, setSmtpPassword] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
   const [senderName, setSenderName] = useState('TechCRM Store Customer Care');
   const [senderEmail, setSenderEmail] = useState('office@techcrm-store.com');
 
   const [waPhoneNumber, setWaPhoneNumber] = useState('+91 90000 12345');
   const [waApiVersion, setWaApiVersion] = useState('v20.0');
   const [waAppId, setWaAppId] = useState('4567812345');
-  const [waAccessToken, setWaAccessToken] = useState('•••••••••••••••••••••');
+  const [waAccessToken, setWaAccessToken] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
   const [waDisplayName, setWaDisplayName] = useState('TechCRM Customer Care');
 
   // Toasts / Status messages for forms
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isSavingSegmentation, setIsSavingSegmentation] = useState(false);
+  const [isLoadingSegmentation, setIsLoadingSegmentation] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type });
@@ -198,7 +346,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Welcome New Customer Campaign',
       type: 'Email',
       status: 'Active',
-      subject: 'Welcome to TechCRM Store! 🎁',
+      subject: 'Welcome to TechCRM Store! ðŸŽ',
       content: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team',
       createdDate: '2026-06-10',
       lastUpdated: '2026-07-01',
@@ -210,7 +358,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Order Confirmation Receipt',
       type: 'WhatsApp',
       status: 'Active',
-      content: 'Hello {{customer_name}}! 🛍️ Your order {{order_id}} of {{amount}} is confirmed. We are preparing it for shipment. Track your delivery status directly here: https://techcrm.store/track/{{order_id}}',
+      content: 'Hello {{customer_name}}! ðŸ›ï¸ Your order {{order_id}} of {{amount}} is confirmed. We are preparing it for shipment. Track your delivery status directly here: https://techcrm.store/track/{{order_id}}',
       createdDate: '2026-06-15',
       lastUpdated: '2026-07-05',
       eventType: 'Scheduled notification'
@@ -220,8 +368,8 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Cart Abandonment Alert',
       type: 'Email',
       status: 'Active',
-      subject: 'Did you forget something? 🛒',
-      content: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss out—complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care',
+      subject: 'Did you forget something? ðŸ›’',
+      content: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care',
       createdDate: '2026-06-20',
       lastUpdated: '2026-07-06',
       eventType: 'Customer Action',
@@ -244,9 +392,12 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [activeTab, setActiveTab] = useState<'notifications' | 'segmentation' | 'templates' | 'scheduling'>('notifications');
 
   // VIP Customer Segmentation States
-  const [isDynamicSegmentationOn, setIsDynamicSegmentationOn] = useState(true);
-  const [vipTotalSpendThreshold, setVipTotalSpendThreshold] = useState('150000');
-  const [vipOrderCountThreshold, setVipOrderCountThreshold] = useState('10');
+  const [isDynamicSegmentationOn, setIsDynamicSegmentationOn] = useState(false);
+  const [minSpend, setMinSpend] = useState('');
+  const [maxSpend, setMaxSpend] = useState('');
+  const [minOrderCount, setMinOrderCount] = useState('');
+  const [maxOrderCount, setMaxOrderCount] = useState('');
+  const [segmentationFieldErrors, setSegmentationFieldErrors] = useState<SegmentationFieldErrors>(EMPTY_SEGMENTATION_FIELD_ERRORS);
 
   // Modal States for Templates
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
@@ -498,15 +649,15 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [previewingTemplateObj, setPreviewingTemplateObj] = useState<{ name: string; subject: string; body: string } | null>(null);
 
   const sequenceTemplates = [
-    { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss out—complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
-    { id: 'TMP-ACB-02', name: 'Your cart is waiting', subject: 'Your cart is waiting! 🛍️', body: 'Hello {{customer_name}}! We are holding your items for a little longer. Use coupon code CARTWAIT for a special 10% discount at checkout.\n\nShop now: https://techcrm.store/checkout' },
+    { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
+    { id: 'TMP-ACB-02', name: 'Your cart is waiting', subject: 'Your cart is waiting! ðŸ›ï¸', body: 'Hello {{customer_name}}! We are holding your items for a little longer. Use coupon code CARTWAIT for a special 10% discount at checkout.\n\nShop now: https://techcrm.store/checkout' },
     { id: 'TMP-ACB-03', name: 'Complete your order today', subject: 'Last chance to complete your order!', body: 'Hi {{customer_name}},\n\nYour shopping cart is about to expire. Grab your favorite items before they go out of stock!\n\nLink to cart: https://techcrm.store/cart' },
-    { id: 'TMP-ACB-04', name: 'Limited stock available', subject: 'Hurry! Items in your cart are selling fast ⚡', body: 'Hi {{customer_name}},\n\nWe wanted to let you know that one or more items in your cart are low in stock. Checkout now to avoid disappointment!\n\nComplete purchase: https://techcrm.store/cart' },
+    { id: 'TMP-ACB-04', name: 'Limited stock available', subject: 'Hurry! Items in your cart are selling fast âš¡', body: 'Hi {{customer_name}},\n\nWe wanted to let you know that one or more items in your cart are low in stock. Checkout now to avoid disappointment!\n\nComplete purchase: https://techcrm.store/cart' },
     { id: 'TMP-ACB-05', name: 'Still interested?', subject: 'Still thinking about it? Here is 10% off!', body: 'Hello {{customer_name}},\n\nWe noticed you are still considering your purchase. Here is an exclusive 10% discount coupon to make it easier: CARTSTILL10.\n\nCheckout: https://techcrm.store/cart' },
     { id: 'TMP-ACB-06', name: 'Don\'t miss your items', subject: 'Don\'t miss out on your curated items!', body: 'Hi {{customer_name}},\n\nYour selected items are still reserved for you, but we can only hold them for a brief period. Click below to checkout safely.\n\nRetrieve cart: https://techcrm.store/cart' },
-    { id: 'TMP-ACB-07', name: 'Final reminder before your cart expires', subject: 'FINAL NOTICE: Your cart is expiring in 2 hours ⏰', body: 'Dear {{customer_name}},\n\nThis is your absolute final notice before your shopping cart expires and your items are returned to stock. Complete your purchase now for 15% off with code FINAL15.\n\nCheckout: https://techcrm.store/cart' },
-    { id: 'TEMP-001', name: 'Welcome New Customer Campaign', subject: 'Welcome to TechCRM Store! 🎁', body: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team' },
-    { id: 'TEMP-003', name: 'Cart Abandonment Alert', subject: 'Did you forget something? 🛒', body: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss out—complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' }
+    { id: 'TMP-ACB-07', name: 'Final reminder before your cart expires', subject: 'FINAL NOTICE: Your cart is expiring in 2 hours â°', body: 'Dear {{customer_name}},\n\nThis is your absolute final notice before your shopping cart expires and your items are returned to stock. Complete your purchase now for 15% off with code FINAL15.\n\nCheckout: https://techcrm.store/cart' },
+    { id: 'TEMP-001', name: 'Welcome New Customer Campaign', subject: 'Welcome to TechCRM Store! ðŸŽ', body: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team' },
+    { id: 'TEMP-003', name: 'Cart Abandonment Alert', subject: 'Did you forget something? ðŸ›’', body: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' }
   ];
 
   // --- Handlers for Email/WhatsApp Settings ---
@@ -525,6 +676,112 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const handleSaveApiConfig = () => {
     showToast(`${activeApiTab === 'email' ? 'SMTP Email' : 'WhatsApp Cloud API'} configuration saved successfully!`, 'success');
   };
+
+  const loadSegmentationSettings = async (signal?: AbortSignal) => {
+    setIsLoadingSegmentation(true);
+    setSegmentationFieldErrors(EMPTY_SEGMENTATION_FIELD_ERRORS);
+
+    try {
+      const data = await fetchCustomerSegmentationSettings({ signal });
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      const nextMinSpend =
+        data?.minTotalSpendThreshold ??
+        data?.minSpend ??
+        null;
+      const nextMaxSpend =
+        data?.maxTotalSpendThreshold ??
+        data?.maxSpend ??
+        null;
+      const nextMinOrderCount =
+        data?.minOrderCountThreshold ??
+        data?.minOrderCount ??
+        null;
+      const nextMaxOrderCount =
+        data?.maxOrderCountThreshold ??
+        data?.maxOrderCount ??
+        null;
+
+      const nextMinSpendValue = nextMinSpend !== null && nextMinSpend !== undefined ? formatSpendInputValue(String(nextMinSpend)) : '';
+      const nextMaxSpendValue = nextMaxSpend !== null && nextMaxSpend !== undefined ? formatSpendInputValue(String(nextMaxSpend)) : '';
+      const nextMinOrderCountValue = nextMinOrderCount !== null && nextMinOrderCount !== undefined ? String(nextMinOrderCount) : '';
+      const nextMaxOrderCountValue = nextMaxOrderCount !== null && nextMaxOrderCount !== undefined ? String(nextMaxOrderCount) : '';
+
+      setIsDynamicSegmentationOn(data?.isDynamicSegmentationEnabled ?? false);
+      setMinSpend(nextMinSpendValue);
+      setMaxSpend(nextMaxSpendValue);
+      setMinOrderCount(nextMinOrderCountValue);
+      setMaxOrderCount(nextMaxOrderCountValue);
+    } catch (error) {
+      if (!signal?.aborted) {
+        const message = error instanceof Error ? error.message : 'Failed to load segmentation settings.';
+        showToast(message, 'error');
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingSegmentation(false);
+      }
+    }
+  };
+
+  const handleSaveSegmentationRules = async () => {
+    const currentErrors = validateSegmentationRangeForm({
+      minSpend,
+      maxSpend,
+      minOrderCount,
+      maxOrderCount,
+    });
+
+    setSegmentationFieldErrors(currentErrors);
+
+    if (Object.values(currentErrors).some(Boolean)) {
+      return;
+    }
+
+    const minSpendValue = parseSpendValue(minSpend);
+    const maxSpendValue = maxSpend.trim() ? parseSpendValue(maxSpend) : null;
+    const minOrderCountValue = parseOrderCountValue(minOrderCount);
+    const maxOrderCountValue = maxOrderCount.trim() ? parseOrderCountValue(maxOrderCount) : null;
+
+    setIsSavingSegmentation(true);
+
+    try {
+      const message = await saveCustomerSegmentationSettings({
+        isDynamicSegmentationEnabled: isDynamicSegmentationOn,
+        minTotalSpendThreshold: minSpendValue,
+        maxTotalSpendThreshold: maxSpendValue,
+        minOrderCountThreshold: minOrderCountValue,
+        maxOrderCountThreshold: maxOrderCountValue,
+      });
+      showToast(message, 'success');
+      void loadSegmentationSettings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save segmentation settings.';
+      showToast(message, 'error');
+    } finally {
+      setIsSavingSegmentation(false);
+    }
+  };
+
+  const handleClearSegmentationFields = () => {
+    setMinSpend('');
+    setMaxSpend('');
+    setMinOrderCount('');
+    setMaxOrderCount('');
+    setSegmentationFieldErrors(EMPTY_SEGMENTATION_FIELD_ERRORS);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadSegmentationSettings(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   // --- Handlers for Templates ---
   const filteredTemplates = useMemo(() => {
@@ -1346,17 +1603,17 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
             <div className="flex-1">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-base font-bold text-text-primary tracking-tight">
-                  Shopify Automated Customer Segmentation rules
+                  VIP Customer Auto-Tagging Rules
                 </h2>
               </div>
               <p className="text-xs text-text-secondary mt-1">
-                Automatically tag and segment customers based on dynamic order counts and total purchase thresholds.
+                Automatically tag a customer as VIP when they cross these spend and order thresholds. Other segments (New, Regular, Inactive) are assigned automatically by the system and are not configurable here.
               </p>
             </div>
           </div>
 
-          <div className="space-y-6 pt-2">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-6 pt-2 max-w-5xl mx-auto w-full">
+            <div className="flex flex-col gap-4">
               {/* SEGMENTATION TRIGGER MODE */}
               <div className="space-y-2">
                 <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">
@@ -1381,46 +1638,152 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                     </button>
                     <div>
                       <span className="text-sm font-bold text-text-primary block">
-                        Dynamic Segmentation is {isDynamicSegmentationOn ? 'ON' : 'OFF'}
+                        VIP Auto-Tagging is {isDynamicSegmentationOn ? 'ON' : 'OFF'}
                       </span>
                       <span className="text-xs text-text-secondary block mt-0.5">
-                        Automatically tag customer segment when order spend thresholds are passed.
+                        Toggle this to control whether the VIP rule is actively applied.
                       </span>
                     </div>
                   </div>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                      isDynamicSegmentationOn
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    {isDynamicSegmentationOn ? 'Rule is live' : 'Rule is paused'}
+                  </span>
                 </div>
               </div>
 
-              {/* VIP SEGMENTATION CRITERIA */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">
-                  VIP Segmentation Criteria
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-text-secondary uppercase">
-                      Total Spend Rule (₹ threshold)
-                    </label>
-                    <input
-                      type="number"
-                      value={vipTotalSpendThreshold}
-                      onChange={(e) => setVipTotalSpendThreshold(e.target.value)}
-                      placeholder="150000"
-                      className="w-full px-3.5 py-2.5 bg-bg-viewport border border-border-subtle rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary placeholder-gray-400 text-text-primary"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-text-secondary uppercase">
-                      Order Count Rule
-                    </label>
-                    <input
-                      type="number"
-                      value={vipOrderCountThreshold}
-                      onChange={(e) => setVipOrderCountThreshold(e.target.value)}
-                      placeholder="10"
-                      className="w-full px-3.5 py-2.5 bg-bg-viewport border border-border-subtle rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary placeholder-gray-400 text-text-primary"
-                    />
-                  </div>
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4">
+                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Total Spend Range</h3>
+                        <p className="text-xs text-text-secondary mt-1">
+                          Set the minimum spend required. Leave max spend blank for no upper limit.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Min Spend
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={minSpend}
+                          onChange={(e) => {
+                            setMinSpend(formatSpendInputValue(e.target.value));
+                            if (segmentationFieldErrors.minSpend) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, minSpend: '', maxSpend: '' }));
+                            }
+                          }}
+                          placeholder="Enter min spend"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.minSpend
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.minSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minSpend}</p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Max Spend
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={maxSpend}
+                          onChange={(e) => {
+                            setMaxSpend(formatSpendInputValue(e.target.value));
+                            if (segmentationFieldErrors.maxSpend) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, maxSpend: '' }));
+                            }
+                          }}
+                          placeholder="Enter Max Spend"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.maxSpend
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.maxSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxSpend}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Order Count Range</h3>
+                        <p className="text-xs text-text-secondary mt-1">
+                          Use whole numbers only. Leave max orders blank for no upper limit.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Min Orders
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={minOrderCount}
+                          onChange={(e) => {
+                            setMinOrderCount(sanitizeOrderCountInput(e.target.value));
+                            if (segmentationFieldErrors.minOrderCount) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, minOrderCount: '', maxOrderCount: '' }));
+                            }
+                          }}
+                          placeholder="Enter min orders"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.minOrderCount
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.minOrderCount && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minOrderCount}</p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Max Orders
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={maxOrderCount}
+                          onChange={(e) => {
+                            setMaxOrderCount(sanitizeOrderCountInput(e.target.value));
+                            if (segmentationFieldErrors.maxOrderCount) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, maxOrderCount: '' }));
+                            }
+                          }}
+                          placeholder="Enter Max Orders"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.maxOrderCount
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.maxOrderCount && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxOrderCount}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
             </div>
@@ -1429,24 +1792,20 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
             <div className="flex justify-end items-center gap-3 pt-4 border-t border-border-subtle">
               <button
                 type="button"
-                onClick={() => {
-                  setIsDynamicSegmentationOn(true);
-                  setVipTotalSpendThreshold('150000');
-                  setVipOrderCountThreshold('10');
-                  showToast('Segmentation settings reset to defaults.', 'info');
-                }}
-                className="px-5 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer shadow-xxs"
+                disabled={isSavingSegmentation || isLoadingSegmentation}
+                onClick={handleClearSegmentationFields}
+                className="px-5 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer shadow-xxs disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Reset to Defaults
+                Clear
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  showToast('Shopify customer segmentation rules updated successfully!', 'success');
-                }}
-                className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs"
+                disabled={isSavingSegmentation || isLoadingSegmentation}
+                onClick={handleSaveSegmentationRules}
+                className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center gap-2"
               >
-                Save Segmentation rules
+                {(isSavingSegmentation || isLoadingSegmentation) && <RefreshCw className="w-4 h-4 animate-spin" />}
+                {isLoadingSegmentation ? 'Loading...' : isSavingSegmentation ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -1599,19 +1958,19 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                         <span>ID: {t.id}</span>
                         {t.subject && (
                           <>
-                            <span>•</span>
+                            <span>â€¢</span>
                             <span className="truncate max-w-xs">Subject: {t.subject}</span>
                           </>
                         )}
                         {t.eventType && (
                           <>
-                            <span>•</span>
+                            <span>â€¢</span>
                             <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">Event: {t.eventType}</span>
                           </>
                         )}
                         {t.customerActionType && (
                           <>
-                            <span>•</span>
+                            <span>â€¢</span>
                             <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">Trigger: {t.customerActionType === 'new customer' ? 'New Customer' : t.customerActionType === 'Abounded checkout' ? 'Abandoned Checkout' : t.customerActionType === 'In Active customer' ? 'Inactive Customer' : t.customerActionType}</span>
                           </>
                         )}
@@ -2359,7 +2718,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <input 
                     type="text"
                     required={templateForm.type === 'Email'}
-                    placeholder="e.g. Welcome to our CRM Store! 🎁"
+                    placeholder="e.g. Welcome to our CRM Store! ðŸŽ"
                     value={templateForm.subject || ''}
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
                     className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
@@ -2521,7 +2880,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   </div>
                   {/* Content body */}
                   <div className="p-5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-                    {selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', '₹15,000')}
+                    {selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}
                   </div>
                 </div>
               ) : (
@@ -2545,13 +2904,13 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <div className="flex-1 p-3 overflow-y-auto space-y-2 flex flex-col justify-end">
                     {/* Security Notice */}
                     <div className="bg-[#fcf8e3] border border-[#faebcc] text-[#8a6d3b] text-[7.5px] py-1 px-2 rounded-lg text-center font-semibold leading-relaxed self-center max-w-[180px]">
-                      🔒 Messages are end-to-end encrypted via Apex Secure Link.
+                      ðŸ”’ Messages are end-to-end encrypted via Apex Secure Link.
                     </div>
                     {/* Incoming/Outgoing Bubble */}
                     <div className="bg-white text-slate-800 p-2.5 rounded-xl rounded-tl-none text-[9.5px] leading-relaxed shadow-xxs max-w-[190px] self-start border border-slate-200">
-                      <div className="whitespace-pre-wrap">{selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', '₹15,000')}</div>
+                      <div className="whitespace-pre-wrap">{selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}</div>
                       <div className="text-right text-[6.5px] text-gray-400 font-bold mt-1 uppercase tracking-wider">
-                        14:24 • Delivered
+                        14:24 â€¢ Delivered
                       </div>
                     </div>
                   </div>

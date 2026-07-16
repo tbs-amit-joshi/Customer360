@@ -6,6 +6,7 @@ import {
   MessageSquare, Tag, Search
 } from 'lucide-react';
 import { formatCurrencyAmount } from '../utils/currency';
+import { getStatusBadgeMeta } from '../utils/orderStatus';
 import { ResizeHandle, useResizableColumns, type ResizableColumnConfig } from './tableResize';
 
 const PRODUCT_GRID_COLUMNS: ResizableColumnConfig[] = [
@@ -381,6 +382,7 @@ export default function OrderProductBreakdown({
   const [activeRefundModal, setActiveRefundModal] = useState<LineItemRefund | null>(null);
   const [activeDetailModalProduct, setActiveDetailModalProduct] = useState<LineItem | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<'refunds' | 'discounts'>('refunds');
+  const orderStatusMeta = getStatusBadgeMeta('order', orderStatus);
 
   useEffect(() => {
     if (activeDetailModalProduct) {
@@ -497,7 +499,9 @@ export default function OrderProductBreakdown({
   return (
     <div className="w-full font-sans text-sm p-2 bg-slate-50/50 rounded-lg">
       {/* Product Items Sub-Table Grid */}
-      <div className="overflow-hidden border border-gray-300 rounded-xl bg-white shadow-xxs">
+      <div className="relative overflow-hidden border border-gray-300 rounded-xl bg-white shadow-xxs">
+        <div className="absolute left-0 top-0 bottom-0 w-[4px] rounded-r-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 opacity-85" />
+        <div className="pl-0">
         <table
           className="w-full text-left border-collapse table-fixed"
           style={{ minWidth: `${productGrid.tableWidth}px` }}
@@ -529,6 +533,7 @@ export default function OrderProductBreakdown({
           ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* --- PRODUCT ORDER DETAIL MODAL --- */}
@@ -553,11 +558,15 @@ export default function OrderProductBreakdown({
                 <div className="text-right flex flex-col items-end gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm font-extrabold text-brand-primary tracking-tight">{orderId}</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${
-                      orderStatus === 'Fulfilled' ? 'bg-brand-primary/5 text-brand-primary border-brand-primary/20' : 'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
-                      {orderStatus}
-                    </span>
+                    {orderStatusMeta ? (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${orderStatusMeta.className}`}>
+                        {orderStatusMeta.label}
+                      </span>
+                    ) : orderStatus?.trim() ? null : (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider bg-slate-50 text-slate-600 border-slate-200">
+                        -
+                      </span>
+                    )}
                   </div>
                   <span className="text-[11px] text-text-secondary font-semibold">{orderDate}</span>
                 </div>
@@ -990,4 +999,3 @@ export default function OrderProductBreakdown({
     </div>
   );
 }
-

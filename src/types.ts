@@ -95,7 +95,11 @@ export interface CustomerProduct {
 export interface CustomerRefund {
   id: string;
   date: string;
+  productName?: string;
+  quantity?: number;
+  sku?: string;
   amount: number;
+  currencyCode?: string;
   status: string;
 }
 
@@ -103,6 +107,24 @@ export interface CustomerDiscount {
   code: string;
   description: string;
   status: string;
+  orderId?: string;
+  percentage?: string | number | null;
+  amount?: string | number | null;
+  orderPrice?: number;
+  discountAmount?: number;
+  currencyCode?: string;
+}
+ 
+export interface CustomerAbandonedCheckout {
+  id: string;
+  checkoutId: string;
+  productNames: string[];
+  variantTitles: string[];
+  variantPrices: Array<number | null>;
+  price: number;
+  qty: number;
+  abandonedAt: string;
+  currencyCode?: string;
 }
 
 export interface Customer {
@@ -120,6 +142,7 @@ export interface Customer {
   leadNo: string;
   leadStatus: LeadStatus;
   segment: CustomerSegment;
+  customerType?: CustomerSegment;
   orders: CustomerOrder[];
   products: CustomerProduct[];
   complaints: { id: string; subject: string; status: ComplaintStatus }[];
