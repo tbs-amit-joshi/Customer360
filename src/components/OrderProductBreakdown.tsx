@@ -74,198 +74,6 @@ interface ApiLineItem {
   price: number;
 }
 
-// Mock service mapping orders to their respective product line items with full fields
-function getLineItemsForOrder(orderId: string, customerId: string, customerName: string): LineItem[] {
-  const normName = customerName?.trim();
-
-  if (normName === 'Emma Watson') {
-    if (orderId === '#SH-90412') {
-      return [
-        {
-          id: 'item-1',
-          name: 'Support Package',
-          variant: '24/7 Priority SLA',
-          qty: 1,
-          price: 45000,
-          complaints: [
-            { 
-              id: 'CP-4081', 
-              status: 'In Progress', 
-              reason: 'Damaged router port replacement',
-              category: 'Hardware Defect',
-              priority: 'High',
-              complaintDate: '2026-06-28',
-              assignedTo: 'Rahul Dev',
-              slaDueDate: '2026-06-30',
-              slaStatus: 'Due Soon',
-              description: 'The enterprise router received has a physically damaged WAN port on the back chassis and refuses to establish an uplink connection. Same-day shipping replacement is requested by the client.',
-              documents: [
-                { id: 'doc-1', name: 'broken_wan_port.png', type: 'image/png', size: '1.2 MB', url: '#' },
-                { id: 'doc-2', name: 'invoice_SH90412.pdf', type: 'application/pdf', size: '420 KB', url: '#' }
-              ]
-            }
-          ],
-          discount: {
-            code: 'VIP15',
-            percentage: 15,
-            amount: 6750,
-            status: 'Active'
-          },
-          refunds: [
-            { 
-              id: 'RF-9002', 
-              status: 'Refunded', 
-              amount: 5000, 
-              type: 'Partial Refund (Service Delay Compensation)', 
-              restocked: false,
-              date: '2026-05-22',
-              gatewayStatus: 'Approved',
-              method: 'Credit Card (Visa - 4242)'
-            }
-          ]
-        },
-        {
-          id: 'item-2',
-          name: 'Enterprise Edge Gateway',
-          variant: '10Gbps SFP+ Ports',
-          qty: 1,
-          price: 55000,
-          complaints: [
-            { 
-              id: 'CP-4082', 
-              status: 'Open', 
-              reason: 'SFP+ transceiver missing from packaging',
-              category: 'Hardware Defect',
-              priority: 'Medium',
-              complaintDate: '2026-06-30',
-              assignedTo: 'David Miller',
-              slaDueDate: '2026-07-03',
-              slaStatus: 'Pending',
-              description: 'The packaging of the Enterprise Edge Gateway was intact but the SFP+ transceiver module slot inside was completely empty. Fiber link deployment is blocked.',
-              documents: [
-                { id: 'doc-3', name: 'empty_slot_photo.jpg', type: 'image/jpeg', size: '1.5 MB', url: '#' }
-              ]
-            }
-          ],
-          discount: {
-            code: 'WELCOME10',
-            percentage: 10,
-            amount: 5500,
-            status: 'Active'
-          },
-          refunds: [
-            { 
-              id: 'RF-9003', 
-              status: 'Pending', 
-              amount: 3000, 
-              type: 'Partial Refund (Negotiated Compensation)', 
-              restocked: false,
-              date: '2026-07-01',
-              gatewayStatus: 'Processing',
-              method: 'Store Credit'
-            }
-          ]
-        }
-      ];
-    }
-  }
-
-  if (normName === 'David Miller') {
-    if (orderId === '#SH-89801') {
-      return [
-        {
-          id: 'item-dm-1',
-          name: 'Pro Smart Router',
-          variant: 'Enterprise Bundle with rack ears',
-          qty: 1,
-          price: 95000,
-          complaints: [],
-          discount: {
-            code: 'LOYALTY20',
-            percentage: 20,
-            amount: 19000,
-            status: 'Active'
-          },
-          refunds: []
-        }
-      ];
-    } else if (orderId === '#SH-87110') {
-      return [
-        {
-          id: 'item-dm-2',
-          name: 'Developer Toolkits',
-          variant: '5 Commercial Licenses',
-          qty: 5,
-          price: 20000,
-          complaints: [
-            { 
-              id: 'CP-4083', 
-              status: 'Resolved', 
-              reason: 'Invalid activation key warnings on startup screen',
-              category: 'Software Key',
-              priority: 'High',
-              complaintDate: '2026-05-03',
-              assignedTo: 'Rahul Dev',
-              slaDueDate: '2026-05-05',
-              slaStatus: 'Completed',
-              description: 'The licensing validation key provided during purchase triggers an invalid license warning upon terminal reboot. A software update and key refresh solved the warning.',
-              documents: []
-            }
-          ],
-          refunds: []
-        }
-      ];
-    }
-  }
-
-  if (normName === 'Anish Grover') {
-    return [
-      {
-        id: 'item-ag-1',
-        name: 'Basic Networking Hub',
-        variant: '8-Port Desktop RJ45',
-        qty: 1,
-        price: 15000,
-        complaints: [],
-        refunds: []
-      }
-    ];
-  }
-
-  if (normName === 'Vikram Seth') {
-    return [
-      {
-        id: 'item-vs-1',
-        name: 'Advanced NAS Storage Server',
-        variant: '4TB RAID-5 Configuration',
-        qty: 1,
-        price: 62000,
-        complaints: [],
-        discount: {
-          code: 'WINBACK50',
-          percentage: 50,
-          amount: 31000,
-          status: 'Active'
-        },
-        refunds: []
-      }
-    ];
-  }
-
-  // Fallback default based on the order's total price or general defaults
-  return [
-    {
-      id: 'item-fallback',
-      name: 'Tech Standard Enterprise Suite',
-      variant: 'Standard Volume License',
-      qty: 1,
-      price: 45000,
-      complaints: [],
-      refunds: []
-    }
-  ];
-}
-
 interface ProductRowItemProps {
   key?: React.Key | string | number;
   item: LineItem;
@@ -356,11 +164,15 @@ export default function OrderProductBreakdown({
       }));
     }
 
-    return getLineItemsForOrder(orderId, customerId, customerName);
-  }, [items, orderId, customerId, customerName]);
+    return [];
+  }, [items]);
 
   // Track expanded state for each product. By default, we expand the first one of the order.
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
+  const lineItemSignature = useMemo(
+    () => lineItems.map((item) => `${item.id}:${item.name}:${item.variant}:${item.qty}:${item.price}`).join('|'),
+    [lineItems]
+  );
 
   React.useEffect(() => {
     if (lineItems.length > 0) {
@@ -368,7 +180,7 @@ export default function OrderProductBreakdown({
     } else {
       setExpandedProducts({});
     }
-  }, [lineItems]);
+  }, [lineItemSignature]);
 
   const toggleProductExpand = (productId: string) => {
     setExpandedProducts(prev => ({
@@ -523,14 +335,23 @@ export default function OrderProductBreakdown({
             </tr>
           </thead>
           <tbody>
-            {lineItems.map((item, idx) => (
-            <ProductRowItem
-              key={item.id}
-              item={item}
-              idx={idx}
-              currencyCode={currencyCode}
-            />
-          ))}
+            {lineItems.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-text-secondary">
+                  <div className="text-sm font-semibold text-text-primary mb-1">No product line items available</div>
+                  <div className="text-xs">This order summary is using the already loaded order data only.</div>
+                </td>
+              </tr>
+            ) : (
+              lineItems.map((item, idx) => (
+                <ProductRowItem
+                  key={item.id}
+                  item={item}
+                  idx={idx}
+                  currencyCode={currencyCode}
+                />
+              ))
+            )}
           </tbody>
         </table>
         </div>

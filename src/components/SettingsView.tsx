@@ -1657,135 +1657,137 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex flex-col gap-4">
-                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div>
-                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Total Spend Range</h3>
-                        <p className="text-xs text-text-secondary mt-1">
-                          Set the minimum spend required. Leave max spend blank for no upper limit.
-                        </p>
+              {!isDynamicSegmentationOn && (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-4">
+                    <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div>
+                          <h3 className="text-sm font-bold text-text-primary tracking-tight">Total Spend Range</h3>
+                          <p className="text-xs text-text-secondary mt-1">
+                            Set the minimum spend required. Leave max spend blank for no upper limit.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-text-secondary uppercase">
-                          Min Spend
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={minSpend}
-                          onChange={(e) => {
-                            setMinSpend(formatSpendInputValue(e.target.value));
-                            if (segmentationFieldErrors.minSpend) {
-                              setSegmentationFieldErrors((prev) => ({ ...prev, minSpend: '', maxSpend: '' }));
-                            }
-                          }}
-                          placeholder="Enter min spend"
-                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                            segmentationFieldErrors.minSpend
-                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                          }`}
-                        />
-                        {segmentationFieldErrors.minSpend && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minSpend}</p>
-                        )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-text-secondary uppercase">
+                            Min Spend
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={minSpend}
+                            onChange={(e) => {
+                              setMinSpend(formatSpendInputValue(e.target.value));
+                              if (segmentationFieldErrors.minSpend) {
+                                setSegmentationFieldErrors((prev) => ({ ...prev, minSpend: '', maxSpend: '' }));
+                              }
+                            }}
+                            placeholder="Enter min spend"
+                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                              segmentationFieldErrors.minSpend
+                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                            }`}
+                          />
+                          {segmentationFieldErrors.minSpend && (
+                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minSpend}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-text-secondary uppercase">
+                            Max Spend
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={maxSpend}
+                            onChange={(e) => {
+                              setMaxSpend(formatSpendInputValue(e.target.value));
+                              if (segmentationFieldErrors.maxSpend) {
+                                setSegmentationFieldErrors((prev) => ({ ...prev, maxSpend: '' }));
+                              }
+                            }}
+                            placeholder="Enter Max Spend"
+                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                              segmentationFieldErrors.maxSpend
+                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                            }`}
+                          />
+                          {segmentationFieldErrors.maxSpend && (
+                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxSpend}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-text-secondary uppercase">
-                          Max Spend
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={maxSpend}
-                          onChange={(e) => {
-                            setMaxSpend(formatSpendInputValue(e.target.value));
-                            if (segmentationFieldErrors.maxSpend) {
-                              setSegmentationFieldErrors((prev) => ({ ...prev, maxSpend: '' }));
-                            }
-                          }}
-                          placeholder="Enter Max Spend"
-                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                            segmentationFieldErrors.maxSpend
-                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                          }`}
-                        />
-                        {segmentationFieldErrors.maxSpend && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxSpend}</p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
+                    </section>
 
-                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div>
-                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Order Count Range</h3>
-                        <p className="text-xs text-text-secondary mt-1">
-                          Use whole numbers only. Leave max orders blank for no upper limit.
-                        </p>
+                    <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div>
+                          <h3 className="text-sm font-bold text-text-primary tracking-tight">Order Count Range</h3>
+                          <p className="text-xs text-text-secondary mt-1">
+                            Use whole numbers only. Leave max orders blank for no upper limit.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-text-secondary uppercase">
-                          Min Orders
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={minOrderCount}
-                          onChange={(e) => {
-                            setMinOrderCount(sanitizeOrderCountInput(e.target.value));
-                            if (segmentationFieldErrors.minOrderCount) {
-                              setSegmentationFieldErrors((prev) => ({ ...prev, minOrderCount: '', maxOrderCount: '' }));
-                            }
-                          }}
-                          placeholder="Enter min orders"
-                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                            segmentationFieldErrors.minOrderCount
-                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                          }`}
-                        />
-                        {segmentationFieldErrors.minOrderCount && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minOrderCount}</p>
-                        )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-text-secondary uppercase">
+                            Min Orders
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={minOrderCount}
+                            onChange={(e) => {
+                              setMinOrderCount(sanitizeOrderCountInput(e.target.value));
+                              if (segmentationFieldErrors.minOrderCount) {
+                                setSegmentationFieldErrors((prev) => ({ ...prev, minOrderCount: '', maxOrderCount: '' }));
+                              }
+                            }}
+                            placeholder="Enter min orders"
+                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                              segmentationFieldErrors.minOrderCount
+                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                            }`}
+                          />
+                          {segmentationFieldErrors.minOrderCount && (
+                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minOrderCount}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-text-secondary uppercase">
+                            Max Orders
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={maxOrderCount}
+                            onChange={(e) => {
+                              setMaxOrderCount(sanitizeOrderCountInput(e.target.value));
+                              if (segmentationFieldErrors.maxOrderCount) {
+                                setSegmentationFieldErrors((prev) => ({ ...prev, maxOrderCount: '' }));
+                              }
+                            }}
+                            placeholder="Enter Max Orders"
+                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                              segmentationFieldErrors.maxOrderCount
+                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                            }`}
+                          />
+                          {segmentationFieldErrors.maxOrderCount && (
+                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxOrderCount}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-text-secondary uppercase">
-                          Max Orders
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={maxOrderCount}
-                          onChange={(e) => {
-                            setMaxOrderCount(sanitizeOrderCountInput(e.target.value));
-                            if (segmentationFieldErrors.maxOrderCount) {
-                              setSegmentationFieldErrors((prev) => ({ ...prev, maxOrderCount: '' }));
-                            }
-                          }}
-                          placeholder="Enter Max Orders"
-                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                            segmentationFieldErrors.maxOrderCount
-                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                          }`}
-                        />
-                        {segmentationFieldErrors.maxOrderCount && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxOrderCount}</p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
+                    </section>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Bottom button actions */}

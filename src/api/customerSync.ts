@@ -176,6 +176,44 @@ interface CustomerDiscountsApiEnvelope {
   } | null;
 }
 
+interface ShopifyChartDetailsCustomerDto {
+  customerName?: string | null;
+  lifeSpend?: number | string | null;
+  orderCount?: number | string | null;
+  customerId?: string | null;
+  segment?: CustomerSegment | string | null;
+}
+
+interface ShopifyChartDetailsRevenueDto {
+  orderDate?: string | null;
+  revenue?: number | string | null;
+}
+
+interface ShopifyChartDetailsDto {
+  mostValuableCustomers?: ShopifyChartDetailsCustomerDto[] | null;
+  highestOrderCustomers?: ShopifyChartDetailsCustomerDto[] | null;
+  revenueAnalytics?: ShopifyChartDetailsRevenueDto[] | null;
+}
+
+export interface CustomerChartDetails {
+  mostValuableCustomers: Array<{
+    customerName: string;
+    lifeSpend: number;
+    customerId?: string;
+    segment?: CustomerSegment | string;
+  }>;
+  highestOrderCustomers: Array<{
+    customerName: string;
+    orderCount: number;
+    customerId?: string;
+    segment?: CustomerSegment | string;
+  }>;
+  revenueAnalytics: Array<{
+    orderDate: string;
+    revenue: number;
+  }>;
+}
+
 interface ShopifyPageInfo {
   hasNextPage?: boolean;
   endCursor?: string | null;
@@ -185,6 +223,7 @@ interface ShopifyCustomerSyncResult {
   pageNo?: number;
   pageSize?: number;
   totalCustomerCount?: number | null;
+  totalcustomercount?: number | null;
   pageInfo?: ShopifyPageInfo | null;
   customers?: ShopifyCustomerDto[] | null;
 }
@@ -201,6 +240,13 @@ interface ApiErrorResponse {
   error?: string;
 }
 
+export interface CustomerSyncPageResult {
+  customers: Customer[];
+  totalCustomerCount: number;
+  pageNo: number;
+  pageSize: number;
+}
+
 export interface CustomerSyncOptions {
   apiBaseUrl?: string;
   shopDomain?: string;
@@ -212,9 +258,12 @@ export interface CustomerSyncOptions {
   emailOrPhone?: string;
   country?: string;
   lifetimeSpend?: string | number;
+  lifetimeSpendMin?: string | number;
+  lifetimeSpendMax?: string | number;
   orderId?: string;
   orderDateFrom?: string;
   orderDateTo?: string;
+  paymentStatus?: string;
   productName?: string;
   productVariant?: string;
   signal?: AbortSignal;
@@ -224,6 +273,10 @@ export interface CustomerExportOptions {
   apiBaseUrl?: string;
   shopDomain?: string;
   storeId?: string;
+  type?: 'excel' | 'chart';
+  dateFilter?: string;
+  startDate?: string;
+  endDate?: string;
   signal?: AbortSignal;
 }
 
@@ -507,6 +560,10 @@ const buildCustomerSyncEndpoint = (requestPath: string, apiBaseUrl: string): str
 const buildCustomerSyncQuery = (options: {
   shopDomain: string;
   storeId: string;
+  type?: 'excel' | 'chart';
+  dateFilter?: string;
+  startDate?: string;
+  endDate?: string;
   customerType?: 'All' | CustomerSegment;
   customerNameOrId?: string;
   emailOrPhone?: string;
@@ -515,6 +572,7 @@ const buildCustomerSyncQuery = (options: {
   orderId?: string;
   orderDateFrom?: string;
   orderDateTo?: string;
+  paymentStatus?: string;
   productName?: string;
   productVariant?: string;
   pageNo?: number;
@@ -528,6 +586,22 @@ const buildCustomerSyncQuery = (options: {
 
   if (options.storeId) {
     query.set('storeId', options.storeId);
+  }
+
+  if (options.type?.trim()) {
+    query.set('type', options.type.trim());
+  }
+ 
+  if (options.dateFilter?.trim()) {
+    query.set('dateFilter', options.dateFilter.trim());
+  }
+ 
+  if (options.startDate !== undefined) {
+    query.set('startDate', options.startDate);
+  }
+ 
+  if (options.endDate !== undefined) {
+    query.set('endDate', options.endDate);
   }
 
   if (options.customerType) {
@@ -550,6 +624,14 @@ const buildCustomerSyncQuery = (options: {
     query.set('lifetimeSpend', String(options.lifetimeSpend).replace(/,/g, '').trim());
   }
 
+  if (options.lifetimeSpendMin !== undefined && options.lifetimeSpendMin !== null && `${options.lifetimeSpendMin}`.trim() !== '') {
+    query.set('lifetimeSpendMin', String(options.lifetimeSpendMin).replace(/,/g, '').trim());
+  }
+
+  if (options.lifetimeSpendMax !== undefined && options.lifetimeSpendMax !== null && `${options.lifetimeSpendMax}`.trim() !== '') {
+    query.set('lifetimeSpendMax', String(options.lifetimeSpendMax).replace(/,/g, '').trim());
+  }
+
   if (options.orderId?.trim()) {
     query.set('orderId', options.orderId.trim());
   }
@@ -560,6 +642,10 @@ const buildCustomerSyncQuery = (options: {
 
   if (options.orderDateTo?.trim()) {
     query.set('orderDateTo', options.orderDateTo.trim());
+  }
+
+  if (options.paymentStatus?.trim()) {
+    query.set('paymentStatus', options.paymentStatus.trim());
   }
 
   if (options.productName?.trim()) {
@@ -778,6 +864,60 @@ const extractChartDetailsRows = (value: unknown): ChartDetailsRecord[] => {
   }
 
   return [];
+};
+
+const extractChartDetailsPayload = (value: unknown): ChartDetailsRecord | null => {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const chartDetails = getNestedValue(record, ['chartDetails', 'chart_details']);
+  if (chartDetails && typeof chartDetails === 'object' && !Array.isArray(chartDetails)) {
+    return chartDetails as ChartDetailsRecord;
+  }
+
+  const data = getNestedValue(record, ['data']);
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const nested = extractChartDetailsPayload(data);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+};
+
+const normalizeChartDetails = (value: unknown): CustomerChartDetails | null => {
+  const record = extractChartDetailsPayload(value);
+  if (!record) {
+    return null;
+  }
+
+  const mostValuableCustomers = extractNestedRecords(record, ['mostValuableCustomers']).map((item, index) => ({
+    customerName: toText(getNestedValue(item, ['customerName', 'name', 'fullName']), `Customer ${index + 1}`),
+    lifeSpend: toNumber(getNestedValue(item, ['lifeSpend', 'lifetimeSpend', 'spend', 'value'])) ?? 0,
+    customerId: toText(getNestedValue(item, ['customerId', 'id']), '').trim() || undefined,
+    segment: normalizeCustomerType(toText(getNestedValue(item, ['segment', 'customerType']), '')) ?? undefined
+  }));
+
+  const highestOrderCustomers = extractNestedRecords(record, ['highestOrderCustomers']).map((item, index) => ({
+    customerName: toText(getNestedValue(item, ['customerName', 'name', 'fullName']), `Customer ${index + 1}`),
+    orderCount: toNumber(getNestedValue(item, ['orderCount', 'orders', 'count', 'value'])) ?? 0,
+    customerId: toText(getNestedValue(item, ['customerId', 'id']), '').trim() || undefined,
+    segment: normalizeCustomerType(toText(getNestedValue(item, ['segment', 'customerType']), '')) ?? undefined
+  }));
+
+  const revenueAnalytics = extractNestedRecords(record, ['revenueAnalytics']).map((item) => ({
+    orderDate: toText(getNestedValue(item, ['orderDate', 'date', 'createdAt']), '').trim(),
+    revenue: toNumber(getNestedValue(item, ['revenue', 'amount', 'value'])) ?? 0
+  })).filter((item) => item.orderDate);
+
+  return {
+    mostValuableCustomers,
+    highestOrderCustomers,
+    revenueAnalytics
+  };
 };
 
 const extractNestedRecords = (source: unknown, keys: string[]): ChartDetailsRecord[] => {
@@ -1044,7 +1184,7 @@ const isAbandonedCheckoutApiEnvelope = (
   );
 };
 
-export async function fetchCustomer360Customers(options: CustomerSyncOptions = {}): Promise<Customer[]> {
+export async function fetchCustomer360Customers(options: CustomerSyncOptions = {}): Promise<CustomerSyncPageResult> {
   const apiBaseUrl = normalizeApiUrl(options.apiBaseUrl || readApiBaseUrl());
   const shopDomain = options.shopDomain?.trim() || DEFAULT_SHOP_DOMAIN;
   const storeId = options.storeId?.trim() || DEFAULT_STORE_ID;
@@ -1059,9 +1199,12 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     emailOrPhone: options.emailOrPhone,
     country: options.country,
     lifetimeSpend: options.lifetimeSpend,
+    lifetimeSpendMin: options.lifetimeSpendMin,
+    lifetimeSpendMax: options.lifetimeSpendMax,
     orderId: options.orderId,
     orderDateFrom: options.orderDateFrom,
     orderDateTo: options.orderDateTo,
+    paymentStatus: options.paymentStatus,
     productName: options.productName,
     productVariant: options.productVariant,
     pageNo,
@@ -1088,7 +1231,7 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     throw new Error('Customer sync response did not include customer rows.');
   }
 
-  return normalized.customers.map((customer, index) => {
+  const mappedCustomers = normalized.customers.map((customer, index) => {
     const orders = customer.orders || [];
     const orderSummary = mapOrders(orders);
     const products = mapProductsFromOrders(orders);
@@ -1130,6 +1273,18 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
       }
     };
   });
+
+  const totalCustomerCount =
+    normalized.totalCustomerCount ??
+    normalized.totalcustomercount ??
+    mappedCustomers.length;
+
+  return {
+    customers: mappedCustomers,
+    totalCustomerCount,
+    pageNo: normalized.pageNo ?? pageNo,
+    pageSize: normalized.pageSize ?? pageSize
+  };
 }
 
 const mapAbandonedCheckout = (checkout: ShopifyAbandonedCheckoutDto, index: number): CustomerAbandonedCheckout => {
@@ -1380,11 +1535,21 @@ export async function fetchCustomerDiscountsByCustomerId(
   return mapCustomerDiscountRows((normalized as { orders?: ShopifyOrderDto[] | null }).orders || []);
 }
  
-export async function exportCustomer360Customers(options: CustomerExportOptions = {}): Promise<string> {
+export async function exportCustomer360Customers(options: CustomerExportOptions & { type: 'chart' }): Promise<CustomerChartDetails | null>;
+export async function exportCustomer360Customers(options?: CustomerExportOptions): Promise<string>;
+export async function exportCustomer360Customers(options: CustomerExportOptions = {}): Promise<string | CustomerChartDetails | null> {
   const apiBaseUrl = normalizeApiUrl(options.apiBaseUrl || readApiBaseUrl());
   const shopDomain = options.shopDomain?.trim() || DEFAULT_SHOP_DOMAIN;
   const storeId = options.storeId?.trim() || DEFAULT_STORE_ID;
-  const query = buildCustomerSyncQuery({ shopDomain, storeId });
+  const requestType = options.type === 'chart' ? 'chart' : 'excel';
+  const query = buildCustomerSyncQuery({
+    shopDomain,
+    storeId,
+    type: requestType,
+    dateFilter: options.dateFilter,
+    startDate: options.startDate,
+    endDate: options.endDate
+  });
   const requestPath = `/api/shopify/sync/getchartdetails?${query}`;
   const endpoint = buildCustomerSyncEndpoint(requestPath, apiBaseUrl);
 
@@ -1396,21 +1561,27 @@ export async function exportCustomer360Customers(options: CustomerExportOptions 
     signal: options.signal
   });
 
-  if (!response.ok) {
-    const responseText = await readResponseText(response);
-    throw new Error(parseErrorMessage(responseText, response.status));
-  }
-
   const payloadText = await readResponseText(response);
   if (!payloadText.trim()) {
-    throw new Error('Chart details export response was empty.');
+    throw new Error('Chart details response was empty.');
   }
 
   let payload: unknown;
   try {
     payload = JSON.parse(payloadText) as unknown;
   } catch {
-    throw new Error('Chart details export response was not valid JSON.');
+    throw new Error('Chart details response was not valid JSON.');
+  }
+
+  if (!response.ok) {
+    const envelope = asRecord(payload);
+    throw new Error(
+      toText(getNestedValue(envelope, ['error', 'message']), `Chart details sync request failed with status ${response.status}.`)
+    );
+  }
+
+  if (requestType === 'chart') {
+    return normalizeChartDetails(payload);
   }
 
   const customers = extractChartDetailsRows(payload);
@@ -1424,3 +1595,4 @@ export async function exportCustomer360Customers(options: CustomerExportOptions 
 
   return filename;
 }
+ 

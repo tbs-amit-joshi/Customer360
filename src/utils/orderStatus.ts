@@ -5,6 +5,11 @@ export interface StatusBadgeMeta {
   className: string;
 }
 
+export interface StatusOption {
+  value: string;
+  label: string;
+}
+
 const STATUS_META: Record<OrderStatusCategory, Record<string, StatusBadgeMeta>> = {
   order: {
     UNFULFILLED: { label: 'Unfulfilled', className: 'bg-red-50 text-red-700 border-red-200' },
@@ -41,6 +46,14 @@ const STATUS_META: Record<OrderStatusCategory, Record<string, StatusBadgeMeta>> 
   }
 };
 
+export const PAYMENT_STATUS_OPTIONS: StatusOption[] = [
+  { value: 'All', label: 'All Statuses' },
+  ...Object.values(STATUS_META.payment).map((meta) => ({
+    value: meta.label,
+    label: meta.label
+  }))
+];
+
 export const normalizeStatusCode = (value?: string | null): string => {
   if (!value) {
     return '';
@@ -70,4 +83,3 @@ export const getKnownStatusCode = (category: OrderStatusCategory, value?: string
 
   return STATUS_META[category][normalized] ? normalized : '';
 };
-

@@ -23,9 +23,12 @@ type CustomerQueryFilters = Pick<
   | 'emailOrPhone'
   | 'country'
   | 'lifetimeSpend'
+  | 'lifetimeSpendMin'
+  | 'lifetimeSpendMax'
   | 'orderId'
   | 'orderDateFrom'
   | 'orderDateTo'
+  | 'paymentStatus'
   | 'productName'
   | 'productVariant'
 >;
@@ -36,12 +39,18 @@ const EMPTY_CUSTOMER_QUERY_FILTERS: CustomerQueryFilters = {
   emailOrPhone: '',
   country: '',
   lifetimeSpend: '',
+  lifetimeSpendMin: '',
+  lifetimeSpendMax: '',
   orderId: '',
   orderDateFrom: '',
   orderDateTo: '',
+  paymentStatus: 'All',
   productName: '',
   productVariant: ''
 };
+
+const DEFAULT_CUSTOMER_PAGE_NO = 1;
+const DEFAULT_CUSTOMER_PAGE_SIZE = 10;
 
 const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFilters): boolean => {
   const keys: (keyof CustomerQueryFilters)[] = [
@@ -50,9 +59,12 @@ const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFil
     'emailOrPhone',
     'country',
     'lifetimeSpend',
+    'lifetimeSpendMin',
+    'lifetimeSpendMax',
     'orderId',
     'orderDateFrom',
     'orderDateTo',
+    'paymentStatus',
     'productName',
     'productVariant'
   ];
@@ -92,6 +104,9 @@ export default function App() {
   });
 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerTotalCount, setCustomerTotalCount] = useState<number>(0);
+  const [customerPageNo, setCustomerPageNo] = useState<number>(DEFAULT_CUSTOMER_PAGE_NO);
+  const [customerPageSize, setCustomerPageSize] = useState<number>(DEFAULT_CUSTOMER_PAGE_SIZE);
   const [isCustomersLoading, setIsCustomersLoading] = useState<boolean>(true);
   const [customerLoadError, setCustomerLoadError] = useState<string | null>(null);
   const [isRefreshingCustomerData, setIsRefreshingCustomerData] = useState(false);
@@ -131,7 +146,11 @@ export default function App() {
     localStorage.setItem('tech_crm_settings', JSON.stringify(settings));
   }, [settings]);
 
-  const loadCustomers = useCallback(async (signal?: AbortSignal) => {
+  const loadCustomers = useCallback(async (
+    signal?: AbortSignal,
+    requestPageNo: number = customerPageNo,
+    requestPageSize: number = customerPageSize
+  ) => {
     const controller = new AbortController();
     const activeSignal = signal || controller.signal;
 
@@ -145,11 +164,16 @@ export default function App() {
         emailOrPhone: customerQueryFilters.emailOrPhone,
         country: customerQueryFilters.country,
         lifetimeSpend: customerQueryFilters.lifetimeSpend,
+        lifetimeSpendMin: customerQueryFilters.lifetimeSpendMin,
+        lifetimeSpendMax: customerQueryFilters.lifetimeSpendMax,
         orderId: customerQueryFilters.orderId,
         orderDateFrom: customerQueryFilters.orderDateFrom,
         orderDateTo: customerQueryFilters.orderDateTo,
+        paymentStatus: customerQueryFilters.paymentStatus,
         productName: customerQueryFilters.productName,
         productVariant: customerQueryFilters.productVariant,
+        pageNo: requestPageNo,
+        pageSize: requestPageSize,
         signal: activeSignal
       });
 
@@ -157,7 +181,8 @@ export default function App() {
         return;
       }
 
-      setCustomers(liveCustomers);
+      setCustomers(liveCustomers.customers);
+      setCustomerTotalCount(liveCustomers.totalCustomerCount);
     } catch (error) {
       if (activeSignal.aborted) {
         return;
@@ -166,6 +191,7 @@ export default function App() {
       const message = error instanceof Error ? error.message : 'Failed to load live customer data.';
       setCustomerLoadError(message);
       setCustomers([]);
+      setCustomerTotalCount(0);
     } finally {
       if (!activeSignal.aborted) {
         setIsCustomersLoading(false);
@@ -177,21 +203,48 @@ export default function App() {
     customerQueryFilters.emailOrPhone,
     customerQueryFilters.country,
     customerQueryFilters.lifetimeSpend,
+    customerQueryFilters.lifetimeSpendMin,
+    customerQueryFilters.lifetimeSpendMax,
     customerQueryFilters.orderId,
     customerQueryFilters.orderDateFrom,
     customerQueryFilters.orderDateTo,
+    customerQueryFilters.paymentStatus,
     customerQueryFilters.productName,
-    customerQueryFilters.productVariant
+    customerQueryFilters.productVariant,
+    customerPageNo,
+    customerPageSize
   ]);
+
+  const handleCustomerQueryChange = useCallback((filters: CustomerQueryFilters) => {
+    const nextFilters: CustomerQueryFilters = {
+      customerType: filters.customerType ?? 'All',
+      customerNameOrId: filters.customerNameOrId ?? '',
+      emailOrPhone: filters.emailOrPhone ?? '',
+      country: filters.country ?? '',
+      lifetimeSpend: filters.lifetimeSpend ?? '',
+      lifetimeSpendMin: filters.lifetimeSpendMin ?? '',
+      lifetimeSpendMax: filters.lifetimeSpendMax ?? '',
+      orderId: filters.orderId ?? '',
+      orderDateFrom: filters.orderDateFrom ?? '',
+      orderDateTo: filters.orderDateTo ?? '',
+      paymentStatus: filters.paymentStatus ?? 'All',
+      productName: filters.productName ?? '',
+      productVariant: filters.productVariant ?? ''
+    };
+
+    setCustomerTypeFilter(nextFilters.customerType ?? 'All');
+    setCustomerQueryFilters((current) => (isSameCustomerQueryFilters(current, nextFilters) ? current : nextFilters));
+    setCustomerPageNo(DEFAULT_CUSTOMER_PAGE_NO);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadCustomers(controller.signal);
+    void loadCustomers(controller.signal, customerPageNo, customerPageSize);
 
     return () => {
       controller.abort();
     };
-  }, [customerRefreshToken, loadCustomers]);
+  }, [customerRefreshToken, customerPageNo, customerPageSize, loadCustomers]);
 
   const handleCloseSettings = useCallback(async () => {
     if (isRefreshingCustomerData) {
@@ -202,12 +255,12 @@ export default function App() {
     const controller = new AbortController();
 
     try {
-      await loadCustomers(controller.signal);
+      await loadCustomers(controller.signal, customerPageNo, customerPageSize);
     } finally {
       setIsRefreshingCustomerData(false);
       setIsSettingsOpen(false);
     }
-  }, [isRefreshingCustomerData, loadCustomers]);
+  }, [isRefreshingCustomerData, loadCustomers, customerPageNo, customerPageSize]);
 
   // Dynamic Theme Custom Properties Sync
   useEffect(() => {
@@ -461,24 +514,19 @@ export default function App() {
                 customerLoadError={customerLoadError}
                 onRefreshCustomers={(customerType) => {
                   setCustomerTypeFilter(customerType);
+                  setCustomerPageNo(DEFAULT_CUSTOMER_PAGE_NO);
                   setCustomerRefreshToken((token) => token + 1);
                 }}
-                onCustomerQueryChange={(filters) => {
-                  const nextFilters: CustomerQueryFilters = {
-                    customerType: filters.customerType ?? 'All',
-                    customerNameOrId: filters.customerNameOrId ?? '',
-                    emailOrPhone: filters.emailOrPhone ?? '',
-                    country: filters.country ?? '',
-                    lifetimeSpend: filters.lifetimeSpend ?? '',
-                    orderId: filters.orderId ?? '',
-                    orderDateFrom: filters.orderDateFrom ?? '',
-                    orderDateTo: filters.orderDateTo ?? '',
-                    productName: filters.productName ?? '',
-                    productVariant: filters.productVariant ?? ''
-                  };
-
-                  setCustomerTypeFilter(nextFilters.customerType ?? 'All');
-                  setCustomerQueryFilters((current) => (isSameCustomerQueryFilters(current, nextFilters) ? current : nextFilters));
+                onCustomerQueryChange={handleCustomerQueryChange}
+                customerPageNo={customerPageNo}
+                customerPageSize={customerPageSize}
+                totalCustomerCount={customerTotalCount}
+                onCustomerPageChange={(pageNo) => {
+                  setCustomerPageNo(pageNo);
+                }}
+                onCustomerPageSizeChange={(pageSize) => {
+                  setCustomerPageSize(pageSize);
+                  setCustomerPageNo(DEFAULT_CUSTOMER_PAGE_NO);
                 }}
               />
             </div>

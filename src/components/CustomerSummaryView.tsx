@@ -24,10 +24,10 @@ import { Customer, CustomerSegment, LeadStatus, CustomerOrder, CustomerRefund, C
 import OrderProductBreakdown from './OrderProductBreakdown';
 import CustomerDataLoader from './CustomerDataLoader';
 import { formatCurrencyAmount } from '../utils/currency';
-import { fetchAbandonedCheckoutsByCustomerId, fetchCustomerRefundsByCustomerId, fetchCustomerDiscountsByCustomerId } from '../api/customerSync';
-import { getStatusBadgeMeta, normalizeStatusCode } from '../utils/orderStatus';
+import { fetchAbandonedCheckoutsByCustomerId, fetchCustomerRefundsByCustomerId, fetchCustomerDiscountsByCustomerId, exportCustomer360Customers, type CustomerChartDetails} from '../api/customerSync';
+import { getStatusBadgeMeta, normalizeStatusCode, PAYMENT_STATUS_OPTIONS } from '../utils/orderStatus';
 import { ResizeHandle, useResizableColumns, type ResizableColumnConfig } from './tableResize';
-import { exportCustomer360Customers, type CustomerSyncOptions } from '../api/customerSync';
+import { type CustomerSyncOptions } from '../api/customerSync';
 
 const CUSTOMER_GRID_COLUMNS: ResizableColumnConfig[] = [
   { id: 'expander', width: 38, minWidth: 32, maxWidth: 80 },
@@ -274,6 +274,11 @@ interface CustomerSummaryViewProps {
   isLoadingCustomers?: boolean;
   customerLoadError?: string | null;
   onRefreshCustomers: (customerType: 'All' | CustomerSegment) => void;
+  customerPageNo: number;
+  customerPageSize: number;
+  totalCustomerCount: number;
+  onCustomerPageChange: (pageNo: number) => void;
+  onCustomerPageSizeChange: (pageSize: number) => void;
   onCustomerQueryChange?: (filters: Pick<
     CustomerSyncOptions,
     | 'customerType'
@@ -281,9 +286,12 @@ interface CustomerSummaryViewProps {
     | 'emailOrPhone'
     | 'country'
     | 'lifetimeSpend'
+    | 'lifetimeSpendMin'
+    | 'lifetimeSpendMax'
     | 'orderId'
     | 'orderDateFrom'
     | 'orderDateTo'
+    | 'paymentStatus'
     | 'productName'
     | 'productVariant'
   >) => void;
@@ -315,6 +323,37 @@ function parseSpendFilterValue(value: string): number {
   return cleaned ? Number(cleaned) : NaN;
 }
 
+function validateSpendRange(minSpend: string, maxSpend: string): { minSpend: string; maxSpend: string } {
+  const errors = { minSpend: '', maxSpend: '' };
+  const minRaw = minSpend.trim();
+  const maxRaw = maxSpend.trim();
+  const minValue = minRaw ? parseSpendFilterValue(minRaw) : NaN;
+  const maxValue = maxRaw ? parseSpendFilterValue(maxRaw) : NaN;
+
+  if (minRaw) {
+    if (!Number.isFinite(minValue)) {
+      errors.minSpend = 'Enter a valid spend amount.';
+    } else if (minValue < 0) {
+      errors.minSpend = 'Min spend cannot be negative.';
+    }
+  }
+
+  if (maxRaw) {
+    if (!Number.isFinite(maxValue)) {
+      errors.maxSpend = 'Enter a valid spend amount.';
+    } else if (maxValue < 0) {
+      errors.maxSpend = 'Max spend cannot be negative.';
+    }
+  }
+
+  if (!errors.minSpend && !errors.maxSpend && minRaw && maxRaw && maxValue < minValue) {
+    errors.minSpend = 'Min spend cannot be greater than Max spend.';
+    errors.maxSpend = `Max value cannot be less than Min value (${formatSpendFilterValue(minRaw)}).`;
+  }
+
+  return errors;
+}
+
 function formatCustomerDisplayName(name: string): string {
   return name
     .trim()
@@ -326,6 +365,167 @@ function formatCustomerDisplayName(name: string): string {
 
 function normalizeSearchText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+type RevenueChartGranularity = 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+type ChartCustomerRow = {
+  id: string;
+  name: string;
+  segment: CustomerSegment;
+  value: number;
+};
+
+type ChartRevenuePoint = {
+  label: string;
+  value: number;
+  displayValue: string;
+};
+
+const RUPEE_SYMBOL = '\u20B9';
+const CHART_ROW_LIMIT = 10;
+
+function formatRupeeAmount(value: number): string {
+  return `${RUPEE_SYMBOL}${value.toLocaleString('en-IN')}`;
+}
+
+function resolveRevenueGranularity(
+  dateRange: 'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_year' | 'custom',
+  startD: Date,
+  endD: Date
+): RevenueChartGranularity {
+  if (dateRange === 'today' || dateRange === 'yesterday') {
+    return 'hourly';
+  }
+
+  if (dateRange === 'last_7_days' || dateRange === 'last_30_days') {
+    return 'daily';
+  }
+
+  if (dateRange === 'last_90_days') {
+    return 'weekly';
+  }
+
+  if (dateRange === 'this_year') {
+    return 'monthly';
+  }
+
+  const diffTime = Math.abs(endD.getTime() - startD.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+  if (diffDays <= 2) {
+    return 'hourly';
+  }
+
+  if (diffDays <= 45) {
+    return 'daily';
+  }
+
+  if (diffDays <= 180) {
+    return 'weekly';
+  }
+
+  return 'monthly';
+}
+
+function resolveRevenueTimelineLabel(
+  dateRange: 'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_year' | 'custom',
+  granularity: RevenueChartGranularity
+): string {
+  if (dateRange === 'today') {
+    return "TODAY'S TIMELINE";
+  }
+
+  if (dateRange === 'yesterday') {
+    return "YESTERDAY'S TIMELINE";
+  }
+
+  if (dateRange === 'last_7_days') {
+    return '7-DAY TIMELINE';
+  }
+
+  if (dateRange === 'last_30_days') {
+    return '30-DAY TIMELINE';
+  }
+
+  if (dateRange === 'last_90_days') {
+    return '90-DAY TIMELINE';
+  }
+
+  if (dateRange === 'this_year') {
+    return 'YEARLY TIMELINE';
+  }
+
+  switch (granularity) {
+    case 'hourly':
+      return 'CUSTOM HOURLY TIMELINE';
+    case 'daily':
+      return 'CUSTOM DAILY TIMELINE';
+    case 'weekly':
+      return 'CUSTOM WEEKLY TIMELINE';
+    default:
+      return 'CUSTOM MONTHLY TIMELINE';
+  }
+}
+
+function formatRevenuePointLabel(value: string, granularity: RevenueChartGranularity): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  if (granularity === 'hourly') {
+    return parsed.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'UTC'
+    });
+  }
+
+  if (granularity === 'monthly') {
+    return parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      year: '2-digit',
+      timeZone: 'UTC'
+    });
+  }
+
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC'
+  });
+}
+
+function mapChartDateFilter(
+  dateRange: 'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_year' | 'custom'
+): string {
+  if (dateRange === 'today') {
+    return 'today';
+  }
+
+  if (dateRange === 'yesterday') {
+    return 'yesterday';
+  }
+
+  if (dateRange === 'last_7_days') {
+    return 'last7days';
+  }
+
+  if (dateRange === 'last_30_days') {
+    return 'last30days';
+  }
+
+  if (dateRange === 'last_90_days') {
+    return 'last90days';
+  }
+
+  if (dateRange === 'this_year') {
+    return 'thisyear';
+  }
+
+  return 'customdate';
 }
 
 function renderStatusBadge(
@@ -346,6 +546,8 @@ function renderStatusBadge(
   return <span className={`${className} ${meta.className}`}>{meta.label}</span>;
 }
 
+const DATE_FILTER_ACCENT = '#4280ce';
+
 export default function CustomerSummaryView({
   customers,
   leads = [],
@@ -358,6 +560,11 @@ export default function CustomerSummaryView({
   isLoadingCustomers = false,
   customerLoadError = null,
   onRefreshCustomers,
+  customerPageNo,
+  customerPageSize,
+  totalCustomerCount,
+  onCustomerPageChange,
+  onCustomerPageSizeChange,
   onCustomerQueryChange
 }: CustomerSummaryViewProps) {
   // Navigation & Details States
@@ -380,30 +587,16 @@ export default function CustomerSummaryView({
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
 
   // Analytics Cards states
-  const [revenueTab, setRevenueTab] = useState<'weekly' | 'monthly' | 'yearly'>('weekly');
+  const [chartDetails, setChartDetails] = useState<CustomerChartDetails | null>(null);
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
 
   // Date range filter states
   const [dateRange, setDateRange] = useState<'today' | 'yesterday' | 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_year' | 'custom'>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const val = params.get('dateRange');
-    const allowed = ['today', 'yesterday', 'last_7_days', 'last_30_days', 'last_90_days', 'this_year', 'custom'];
-    if (val && allowed.includes(val)) {
-      return val as any;
-    }
-    return 'last_30_days';
+        return 'last_7_days';
   });
   
-  const [customStart, setCustomStart] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('customStart') || '';
-  });
-  
-  const [customEnd, setCustomEnd] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('customEnd') || '';
-  });
-
+  const [customStart, setCustomStart] = useState<string>('');  
+  const [customEnd, setCustomEnd] = useState<string>('')
   const [isDateRefetching, setIsDateRefetching] = useState(false);
   const [isSegmentRefetching, setIsSegmentRefetching] = useState(false);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
@@ -435,35 +628,14 @@ const closePopupCustomer = () => {
 
   const updateDateRange = (newRange: typeof dateRange) => {
     setDateRange(newRange);
-    const params = new URLSearchParams(window.location.search);
-    params.set('dateRange', newRange);
-    
-    if (newRange === 'custom') {
-      if (customStart) params.set('customStart', customStart);
-      if (customEnd) params.set('customEnd', customEnd);
-    } else {
-      params.delete('customStart');
-      params.delete('customEnd');
-    }
-    
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.pushState({}, '', newUrl);
   };
 
   const handleCustomStartChange = (val: string) => {
     setCustomStart(val);
-    const params = new URLSearchParams(window.location.search);
-    params.set('customStart', val);
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.pushState({}, '', newUrl);
   };
 
   const handleCustomEndChange = (val: string) => {
     setCustomEnd(val);
-    const params = new URLSearchParams(window.location.search);
-    params.set('customEnd', val);
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.pushState({}, '', newUrl);
   };
 
   // Fallback dates if custom start/end are not chosen yet
@@ -526,6 +698,54 @@ const closePopupCustomer = () => {
   const activeCustomStart = debouncedDate.customStart || fallbackStart;
   const activeCustomEnd = debouncedDate.customEnd || fallbackEnd;
 
+    React.useEffect(() => {
+    const controller = new AbortController();
+    let isActive = true;
+    const isCustomRange = debouncedDate.dateRange === 'custom';
+    const customStartValue = customStart.trim();
+    const customEndValue = customEnd.trim();
+    const hasCustomDates = customStartValue.length > 0 && customEndValue.length > 0;
+
+    if (isCustomRange && !hasCustomDates) {
+      return () => {
+        controller.abort();
+      };
+    }
+
+    void (async () => {
+      try {
+        const requestOptions = {
+          type: 'chart',
+          dateFilter: mapChartDateFilter(debouncedDate.dateRange),
+          signal: controller.signal
+        } as const;
+
+        const details = await exportCustomer360Customers(
+          isCustomRange && hasCustomDates
+            ? {
+                ...requestOptions,
+                startDate: customStartValue,
+                endDate: customEndValue
+              }
+            : requestOptions
+        );
+
+        if (isActive) {
+          setChartDetails(details);
+        }
+      } catch {
+        if (isActive) {
+          setChartDetails(null);
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [customEnd, customStart, debouncedDate.dateRange]);
+
   const isCard1Loading = false;
   const isOtherCardsLoading = false;
 
@@ -574,241 +794,135 @@ const closePopupCustomer = () => {
     };
   }, [debouncedDate, activeCustomStart, activeCustomEnd]);
 
+  const customerLookup = useMemo(() => {
+    const lookup = new Map<string, Customer>();
+ 
+    customers.forEach((customer) => {
+      lookup.set(normalizeSearchText(customer.name), customer);
+      lookup.set(customer.id, customer);
+    });
+ 
+    return lookup;
+  }, [customers]);
+ 
+  const resolveChartSegment = (
+    entry: {
+      customerName: string;
+      customerId?: string;
+      segment?: CustomerSegment | string;
+    }
+  ): CustomerSegment | undefined => {
+    if (entry.segment === 'VIP' || entry.segment === 'Regular' || entry.segment === 'New' || entry.segment === 'Inactive') {
+      return entry.segment;
+    }
+ 
+    if (entry.customerId && customerLookup.has(entry.customerId)) {
+      return customerLookup.get(entry.customerId)?.segment;
+    }
+ 
+    return customerLookup.get(normalizeSearchText(entry.customerName))?.segment;
+  };
+ 
   // 2. Compute dynamic data for cards
   const mostValuableData = useMemo(() => {
-    return [
-      { id: '101', name: 'Amit J.', segment: 'VIP' as CustomerSegment, value: 82172.98 },
-      { id: '102', name: 'Emma S.', segment: 'Regular' as CustomerSegment, value: 54120.5 },
-      { id: '103', name: 'David W.', segment: 'VIP' as CustomerSegment, value: 32980.25 },
-      { id: '104', name: 'Liam J.', segment: 'Inactive' as CustomerSegment, value: 12450.0 },
-      { id: '105', name: 'Nora K.', segment: 'New' as CustomerSegment, value: 9850.75 }
-    ];
-
+    const chartRows = chartDetails?.mostValuableCustomers || [];
+    const segmentFilter = debouncedSegment;
+ 
+    if (chartRows.length > 0) {
+      const normalizedRows = chartRows
+        .map((row, index) => ({
+          id: row.customerId || `chart-spend-${index}`,
+          name: formatCustomerDisplayName(row.customerName),
+          segment: resolveChartSegment(row) || 'Inactive',
+          value: row.lifeSpend
+        }))
+        .filter((item) => segmentFilter === 'All' || item.segment === segmentFilter)
+        .slice(0, CHART_ROW_LIMIT);
+ 
+      if (normalizedRows.length > 0 || segmentFilter === 'All') {
+        return normalizedRows;
+      }
+    }
+ 
     const { startStr, endStr } = filterRange;
-    const seg = debouncedSegment;
-    
+ 
     return customers
-      .map(c => {
-        const filtered = (c.orders || []).filter(o => o.date >= startStr && o.date <= endStr);
-        const spend = filtered.reduce((sum, o) => sum + o.amount, 0);
-        return { id: c.id, name: c.name, segment: c.segment, value: spend };
+      .map((customer) => {
+        const filtered = (customer.orders || []).filter((order) => order.date >= startStr && order.date <= endStr);
+        const spend = filtered.reduce((sum, order) => sum + order.amount, 0);
+        return { id: customer.id, name: customer.name, segment: customer.segment, value: spend };
       })
-      .filter(item => {
-        const matchesSegment = seg === 'All' || item.segment === seg;
+      .filter((item) => {
+        const matchesSegment = segmentFilter === 'All' || item.segment === segmentFilter;
         return matchesSegment && item.value > 0;
       })
       .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-  }, [customers, filterRange, debouncedSegment]);
-
+      .slice(0, CHART_ROW_LIMIT);
+  }, [chartDetails, customers, debouncedSegment, filterRange, customerLookup]);
+ 
   const highestOrderData = useMemo(() => {
-    return [
-      { name: 'Amit J.', segment: 'VIP' as CustomerSegment, value: 7 },
-      { name: 'Emma S.', segment: 'Regular' as CustomerSegment, value: 5 },
-      { name: 'David W.', segment: 'VIP' as CustomerSegment, value: 4 },
-      { name: 'Liam J.', segment: 'Inactive' as CustomerSegment, value: 2 },
-      { name: 'Nora K.', segment: 'New' as CustomerSegment, value: 1 }
-    ];
-
+    const chartRows = chartDetails?.highestOrderCustomers || [];
+    const segmentFilter = debouncedSegment;
+ 
+    if (chartRows.length > 0) {
+      const normalizedRows = chartRows
+        .map((row, index) => ({
+          name: formatCustomerDisplayName(row.customerName),
+          segment: resolveChartSegment(row) || 'Inactive',
+          value: row.orderCount,
+          id: row.customerId || `chart-order-${index}`
+        }))
+        .filter((item) => segmentFilter === 'All' || item.segment === segmentFilter)
+        .slice(0, CHART_ROW_LIMIT);
+ 
+      if (normalizedRows.length > 0 || segmentFilter === 'All') {
+        return normalizedRows;
+      }
+    }
+ 
     const { startStr, endStr } = filterRange;
-    
+ 
     return customers
-      .map(c => {
-        const filtered = (c.orders || []).filter(o => o.date >= startStr && o.date <= endStr);
-        return { name: c.name, segment: c.segment, value: filtered.length };
+      .map((customer) => {
+        const filtered = (customer.orders || []).filter((order) => order.date >= startStr && order.date <= endStr);
+        return { name: customer.name, segment: customer.segment, value: filtered.length };
       })
-      .filter(item => item.value > 0)
+      .filter((item) => item.value > 0)
       .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-  }, [customers, filterRange]);
-
+      .slice(0, CHART_ROW_LIMIT);
+  }, [chartDetails, customers, debouncedSegment, filterRange, customerLookup]);
   // 3. Compute dynamic line chart data for Revenue Analytics
   const currentChart = useMemo(() => {
-    return {
-      total: '₹82,172.98',
-      timeline: '30-DAY TIMELINE',
-      points: [
-        { label: 'Jun 20', value: 1200, displayValue: '₹1,200' },
-        { label: 'Jun 24', value: 1800, displayValue: '₹1,800' },
-        { label: 'Jun 28', value: 1500, displayValue: '₹1,500' },
-        { label: 'Jul 2', value: 2100, displayValue: '₹2,100' },
-        { label: 'Jul 6', value: 2400, displayValue: '₹2,400' },
-        { label: 'Jul 10', value: 2600, displayValue: '₹2,600' },
-        { label: 'Jul 12', value: 3200, displayValue: '₹3,200' },
-        { label: 'Jul 13', value: 2900, displayValue: '₹2,900' },
-        { label: 'Jul 14', value: 4200, displayValue: '₹4,200' },
-        { label: 'Jul 15', value: 19500, displayValue: '₹19,500' },
-        { label: 'Jul 16', value: 5100, displayValue: '₹5,100' }
-      ]
-    };
-
-    const { startStr, endStr, startD, endD } = filterRange;
-    
-    const ordersInRange: { date: string; amount: number; orderId: string }[] = [];
-    customers.forEach(c => {
-      (c.orders || []).forEach(o => {
-        if (o.date >= startStr && o.date <= endStr) {
-          ordersInRange.push({
-            date: o.date,
-            amount: o.amount,
-            orderId: o.orderId
-          });
-        }
-      });
-    });
-    
-    const totalRevenue = ordersInRange.reduce((sum, o) => sum + o.amount, 0);
-    const totalFormatted = '₹' + totalRevenue.toLocaleString('en-IN');
-    
-    let timelineLabel = 'TIMELINE';
-    let points: { label: string; value: number; displayValue: string }[] = [];
-    let strategy: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'daily';
-    
-    if (dateRange === 'today' || dateRange === 'yesterday') {
-      strategy = 'hourly';
-      timelineLabel = dateRange === 'today' ? "TODAY'S TIMELINE" : "YESTERDAY'S TIMELINE";
-    } else if (dateRange === 'last_7_days') {
-      strategy = 'daily';
-      timelineLabel = '7-DAY TIMELINE';
-    } else if (dateRange === 'last_30_days') {
-      strategy = 'daily';
-      timelineLabel = '30-DAY TIMELINE';
-    } else if (dateRange === 'last_90_days') {
-      strategy = 'weekly';
-      timelineLabel = '90-DAY TIMELINE';
-    } else if (dateRange === 'this_year') {
-      strategy = 'monthly';
-      timelineLabel = 'YEARLY TIMELINE';
-    } else if (dateRange === 'custom') {
-      timelineLabel = 'CUSTOM TIMELINE';
-      const diffTime = Math.abs(endD.getTime() - startD.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      
-      if (diffDays <= 2) {
-        strategy = 'hourly';
-      } else if (diffDays <= 45) {
-        strategy = 'daily';
-      } else if (diffDays <= 180) {
-        strategy = 'weekly';
-      } else {
-        strategy = 'monthly';
-      }
+    const revenueRows = chartDetails?.revenueAnalytics || [];
+    const granularity = resolveRevenueGranularity(debouncedDate.dateRange, filterRange.startD, filterRange.endD);
+    const chartTimelineLabel = resolveRevenueTimelineLabel(debouncedDate.dateRange, granularity);
+ 
+    if (revenueRows.length > 0) {
+      const points = [...revenueRows]
+        .sort((a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime())
+        .map((row) => ({
+          label: formatRevenuePointLabel(row.orderDate, granularity),
+          value: row.revenue,
+          displayValue: formatRupeeAmount(row.revenue)
+        }));
+ 
+      const totalRevenue = points.reduce((sum, point) => sum + point.value, 0);
+ 
+      return {
+        total: formatRupeeAmount(totalRevenue),
+        timeline: resolveRevenueTimelineLabel(debouncedDate.dateRange, granularity),
+        points
+      };
     }
-    
-    if (strategy === 'hourly') {
-      const intervals = [
-        '12 AM', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', 
-        '12 PM', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM'
-      ];
-      const buckets = intervals.map(label => ({ label, value: 0 }));
-      
-      ordersInRange.forEach(o => {
-        const numId = parseInt(o.orderId.replace(/\D/g, '')) || 0;
-        const bucketIdx = numId % 12;
-        buckets[bucketIdx].value += o.amount;
-      });
-      
-      points = buckets.map(b => ({
-        label: b.label,
-        value: b.value,
-        displayValue: '₹' + b.value.toLocaleString('en-IN')
-      }));
-    } else if (strategy === 'daily') {
-      const buckets: { dateStr: string; label: string; value: number }[] = [];
-      const current = new Date(startD);
-      let iterations = 0;
-      while (current <= endD && iterations < 100) {
-        iterations++;
-        const dateStr = getLocalDateString(current);
-        const label = current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        buckets.push({ dateStr, label, value: 0 });
-        current.setDate(current.getDate() + 1);
-      }
-      
-      ordersInRange.forEach(o => {
-        const match = buckets.find(b => b.dateStr === o.date);
-        if (match) {
-          match.value += o.amount;
-        }
-      });
-      
-      points = buckets.map(b => ({
-        label: b.label,
-        value: b.value,
-        displayValue: '₹' + b.value.toLocaleString('en-IN')
-      }));
-    } else if (strategy === 'weekly') {
-      const buckets: { startStr: string; endStr: string; label: string; value: number }[] = [];
-      const current = new Date(startD);
-      let iterations = 0;
-      while (current <= endD && iterations < 52) {
-        iterations++;
-        const weekStartStr = getLocalDateString(current);
-        const label = current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        
-        const weekEnd = new Date(current);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        if (weekEnd > endD) {
-          weekEnd.setTime(endD.getTime());
-        }
-        const weekEndStr = getLocalDateString(weekEnd);
-        
-        buckets.push({ startStr: weekStartStr, endStr: weekEndStr, label, value: 0 });
-        current.setDate(current.getDate() + 7);
-      }
-      
-      ordersInRange.forEach(o => {
-        const match = buckets.find(b => o.date >= b.startStr && o.date <= b.endStr);
-        if (match) {
-          match.value += o.amount;
-        }
-      });
-      
-      points = buckets.map(b => ({
-        label: b.label,
-        value: b.value,
-        displayValue: '₹' + b.value.toLocaleString('en-IN')
-      }));
-    } else if (strategy === 'monthly') {
-      const buckets: { monthKey: string; label: string; value: number }[] = [];
-      const current = new Date(startD);
-      let iterations = 0;
-      while (current <= endD && iterations < 36) {
-        iterations++;
-        const yyyy = current.getFullYear();
-        const mm = String(current.getMonth() + 1).padStart(2, '0');
-        const monthKey = `${yyyy}-${mm}`;
-        const label = current.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-        
-        if (!buckets.some(b => b.monthKey === monthKey)) {
-          buckets.push({ monthKey, label, value: 0 });
-        }
-        
-        current.setMonth(current.getMonth() + 1);
-        current.setDate(1);
-      }
-      
-      ordersInRange.forEach(o => {
-        const oMonthKey = o.date.slice(0, 7);
-        const match = buckets.find(b => b.monthKey === oMonthKey);
-        if (match) {
-          match.value += o.amount;
-        }
-      });
-      
-      points = buckets.map(b => ({
-        label: b.label,
-        value: b.value,
-        displayValue: '₹' + b.value.toLocaleString('en-IN')
-      }));
-    }
-    
+ 
     return {
-      total: totalFormatted,
-      timeline: timelineLabel,
-      points
+      total: formatRupeeAmount(0),
+      timeline: chartTimelineLabel,
+      points: []
     };
-  }, [customers, filterRange, dateRange]);
+ 
+  }, [chartDetails, customers, debouncedDate.dateRange, filterRange]);
+ 
 
   const dateRangeLabels: Record<string, string> = {
     today: 'Today',
@@ -836,8 +950,8 @@ const closePopupCustomer = () => {
   const [orderStatusFilter, setOrderStatusFilter] = useState('All');
   const [orderMinAmount, setOrderMinAmount] = useState('');
   const [orderMaxAmount, setOrderMaxAmount] = useState('');
-  const [orderStartDate, setOrderStartDate] = useState('');
-  const [orderEndDate, setOrderEndDate] = useState('');
+  const [selectedOrderStartDate, setSelectedOrderStartDate] = useState('');
+  const [selectedOrderEndDate, setSelectedOrderEndDate] = useState('');
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState('All');
   const [orderFulfillmentStatusFilter, setOrderFulfillmentStatusFilter] = useState('All');
   const [orderMinQty, setOrderMinQty] = useState('');
@@ -853,8 +967,8 @@ const closePopupCustomer = () => {
     setOrderStatusFilter('All');
     setOrderMinAmount('');
     setOrderMaxAmount('');
-    setOrderStartDate('');
-    setOrderEndDate('');
+    setSelectedOrderStartDate('');
+    setSelectedOrderEndDate('');
     setOrderPaymentStatusFilter('All');
     setOrderFulfillmentStatusFilter('All');
     setOrderMinQty('');
@@ -873,7 +987,8 @@ const closePopupCustomer = () => {
   const [draftFilterCustomerName, setDraftFilterCustomerName] = useState('');
   const [draftFilterEmailPhone, setDraftFilterEmailPhone] = useState('');
   const [draftFilterCountry, setDraftFilterCountry] = useState('');
-  const [draftFilterTotalSpend, setDraftFilterTotalSpend] = useState('');
+  const [draftFilterMinSpend, setDraftFilterMinSpend] = useState('');
+  const [draftFilterMaxSpend, setDraftFilterMaxSpend] = useState('');
   const [draftFilterOrderId, setDraftFilterOrderId] = useState('');
   const [draftOrderStartDate, setDraftOrderStartDate] = useState('');
   const [draftOrderEndDate, setDraftOrderEndDate] = useState('');
@@ -884,36 +999,52 @@ const closePopupCustomer = () => {
   const [filterCustomerName, setFilterCustomerName] = useState('');
   const [filterEmailPhone, setFilterEmailPhone] = useState('');
   const [filterCountry, setFilterCountry] = useState('');
-  const [filterTotalSpend, setFilterTotalSpend] = useState('');
+  const [filterMinSpend, setFilterMinSpend] = useState('');
+  const [filterMaxSpend, setFilterMaxSpend] = useState('');
   const [filterOrderId, setFilterOrderId] = useState('');
+  const [filterOrderStartDate, setFilterOrderStartDate] = useState('');
+  const [filterOrderEndDate, setFilterOrderEndDate] = useState('');
   const [filterOrderStatus, setFilterOrderStatus] = useState('All');
   const [filterPaymentStatus, setFilterPaymentStatus] = useState('All');
   const [filterProductName, setFilterProductName] = useState('');
   const [filterVariant, setFilterVariant] = useState('');
 
+  const spendFilterErrors = React.useMemo(
+    () => validateSpendRange(draftFilterMinSpend, draftFilterMaxSpend),
+    [draftFilterMinSpend, draftFilterMaxSpend]
+  );
+
   const [segmentFilter, setSegmentFilter] = useState('All');
   const [leadStatusFilter, setLeadStatusFilter] = useState('All');
 
   const applyCustomerFilters = () => {
+    if (spendFilterErrors.minSpend || spendFilterErrors.maxSpend) {
+      return;
+    }
+
     setFilterCustomerName(draftFilterCustomerName);
     setFilterEmailPhone(draftFilterEmailPhone);
     setFilterCountry(draftFilterCountry);
-    setFilterTotalSpend(draftFilterTotalSpend);
+    setFilterMinSpend(draftFilterMinSpend);
+    setFilterMaxSpend(draftFilterMaxSpend);
     setFilterOrderId(draftFilterOrderId);
-    setOrderStartDate(draftOrderStartDate);
-    setOrderEndDate(draftOrderEndDate);
+    setFilterOrderStartDate(draftOrderStartDate);
+    setFilterOrderEndDate(draftOrderEndDate);
     setFilterPaymentStatus(draftFilterPaymentStatus);
     setOrderPaymentStatusFilter(draftFilterPaymentStatus);
     setFilterProductName(draftFilterProductName);
     setFilterVariant(draftFilterVariant);
-    setCurrentPage(1);
+    setSelectedCustomer(null);
+    setExpandedOrderIds({});
+    onCustomerPageChange(1);
   };
 
   const clearCustomerFilters = () => {
     setDraftFilterCustomerName('');
     setDraftFilterEmailPhone('');
     setDraftFilterCountry('');
-    setDraftFilterTotalSpend('');
+    setDraftFilterMinSpend('');
+    setDraftFilterMaxSpend('');
     setDraftFilterOrderId('');
     setDraftOrderStartDate('');
     setDraftOrderEndDate('');
@@ -924,15 +1055,18 @@ const closePopupCustomer = () => {
     setFilterCustomerName('');
     setFilterEmailPhone('');
     setFilterCountry('');
-    setFilterTotalSpend('');
+    setFilterMinSpend('');
+    setFilterMaxSpend('');
     setFilterOrderId('');
-    setOrderStartDate('');
-    setOrderEndDate('');
+    setFilterOrderStartDate('');
+    setFilterOrderEndDate('');
     setFilterPaymentStatus('All');
     setOrderPaymentStatusFilter('All');
     setFilterProductName('');
     setFilterVariant('');
-    setCurrentPage(1);
+    setSelectedCustomer(null);
+    setExpandedOrderIds({});
+    onCustomerPageChange(1);
   };
 
   React.useEffect(() => {
@@ -945,10 +1079,13 @@ const closePopupCustomer = () => {
       customerNameOrId: filterCustomerName.trim(),
       emailOrPhone: filterEmailPhone.trim(),
       country: filterCountry.trim(),
-      lifetimeSpend: filterTotalSpend.trim(),
+      lifetimeSpend: filterMinSpend.trim(),
+      lifetimeSpendMin: filterMinSpend.trim(),
+      lifetimeSpendMax: filterMaxSpend.trim(),
       orderId: filterOrderId.trim(),
-      orderDateFrom: orderStartDate.trim(),
-      orderDateTo: orderEndDate.trim(),
+      orderDateFrom: filterOrderStartDate.trim(),
+      orderDateTo: filterOrderEndDate.trim(),
+      paymentStatus: filterPaymentStatus.trim(),
       productName: filterProductName.trim(),
       productVariant: filterVariant.trim()
     });
@@ -957,10 +1094,12 @@ const closePopupCustomer = () => {
     filterCustomerName,
     filterEmailPhone,
     filterCountry,
-    filterTotalSpend,
+    filterMinSpend,
+    filterMaxSpend,
     filterOrderId,
-    orderStartDate,
-    orderEndDate,
+    filterOrderStartDate,
+    filterOrderEndDate,
+    filterPaymentStatus,
     filterProductName,
     filterVariant,
     onCustomerQueryChange
@@ -1029,7 +1168,7 @@ const closePopupCustomer = () => {
     setIsExportingExcel(true);
 
     try {
-      const filename = await exportCustomer360Customers();
+      const filename = await exportCustomer360Customers({ type: 'excel' });
       alert(`Customer export downloaded successfully:\n${filename}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to export customer data.';
@@ -1051,6 +1190,7 @@ const closePopupCustomer = () => {
     setSelectedCustomer(null);
     setShowFilterConsole(false);
     setShowOrderProductFilters(false);
+    onCustomerPageChange(1);
     onRefreshCustomers('All');
   };
 
@@ -1086,9 +1226,16 @@ const closePopupCustomer = () => {
       }
 
       // 5. Individual Total Spend filter
-      if (filterTotalSpend.trim() !== '') {
-        const minSpend = parseSpendFilterValue(filterTotalSpend);
+      if (filterMinSpend.trim() !== '') {
+        const minSpend = parseSpendFilterValue(filterMinSpend);
         if (Number.isFinite(minSpend) && cust.totalSpend < minSpend) {
+          return false;
+        }
+      }
+
+      if (filterMaxSpend.trim() !== '') {
+        const maxSpend = parseSpendFilterValue(filterMaxSpend);
+        if (Number.isFinite(maxSpend) && cust.totalSpend > maxSpend) {
           return false;
         }
       }
@@ -1146,7 +1293,8 @@ const closePopupCustomer = () => {
     filterCustomerName,
     filterEmailPhone,
     filterCountry,
-    filterTotalSpend,
+    filterMinSpend,
+    filterMaxSpend,
     filterOrderId,
     filterOrderStatus,
     filterPaymentStatus,
@@ -1256,11 +1404,11 @@ const closePopupCustomer = () => {
     }
 
     // Filter by Order Date (Between / Range)
-    if (orderStartDate.trim() !== '') {
-      items = items.filter(o => o.date >= orderStartDate);
+    if (selectedOrderStartDate.trim() !== '') {
+      items = items.filter(o => o.date >= selectedOrderStartDate);
     }
-    if (orderEndDate.trim() !== '') {
-      items = items.filter(o => o.date <= orderEndDate);
+    if (selectedOrderEndDate.trim() !== '') {
+      items = items.filter(o => o.date <= selectedOrderEndDate);
     }
 
     // Filter by Child fields: Qty & Price
@@ -1311,8 +1459,8 @@ const closePopupCustomer = () => {
     orderStatusFilter,
     orderMinAmount,
     orderMaxAmount,
-    orderStartDate,
-    orderEndDate,
+    selectedOrderStartDate,
+    selectedOrderEndDate,
     orderPaymentStatusFilter,
     orderFulfillmentStatusFilter,
     orderMinQty,
@@ -1330,8 +1478,6 @@ const closePopupCustomer = () => {
   // Sorting & Pagination States
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(10);
   const customerGrid = useResizableColumns(CUSTOMER_GRID_COLUMNS);
   const compactOrderGrid = useResizableColumns(COMPACT_ORDER_GRID_COLUMNS);
   const detailedOrderGrid = useResizableColumns(DETAILED_ORDER_GRID_COLUMNS);
@@ -1351,7 +1497,7 @@ const closePopupCustomer = () => {
       setSortColumn(column);
       setSortDirection('asc');
     }
-    setCurrentPage(1);
+    onCustomerPageChange(1);
   };
 
   const renderResizableHeader = (
@@ -1405,11 +1551,10 @@ const closePopupCustomer = () => {
   }, [filteredCustomers, sortColumn, sortDirection]);
 
   const paginatedCustomers = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return sortedCustomers.slice(startIndex, startIndex + pageSize);
-  }, [sortedCustomers, currentPage, pageSize]);
+    return sortedCustomers.slice(0, customerPageSize);
+  }, [sortedCustomers, customerPageSize]);
 
-  const totalPages = Math.ceil(sortedCustomers.length / pageSize) || 1;
+  const totalPages = Math.ceil(totalCustomerCount / customerPageSize) || 1;
   const abandonedCheckoutPageSize = 5;
   const abandonedCheckoutTotalPages = Math.ceil(abandonedCheckoutRows.length / abandonedCheckoutPageSize) || 1;
   const abandonedCheckoutPaginatedRows = useMemo(() => {
@@ -1719,11 +1864,19 @@ const closePopupCustomer = () => {
           <button
             type="button"
             onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 border border-gray-200 rounded-xl shadow-xs bg-white text-xs font-bold text-gray-700 hover:bg-slate-50 transition-colors duration-150 cursor-pointer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 border rounded-xl shadow-sm bg-white text-xs font-bold transition-all duration-150 cursor-pointer"
+            style={{
+              borderColor: isDateDropdownOpen ? `${DATE_FILTER_ACCENT}33` : '#dbe4f0',
+              color: DATE_FILTER_ACCENT,
+              boxShadow: isDateDropdownOpen ? '0 10px 24px rgba(66, 128, 206, 0.14)' : '0 1px 2px rgba(15, 23, 42, 0.05)'
+            }}
           >
-            <Calendar className="w-4 h-4 text-indigo-500" />
+            <Calendar className="w-4 h-4" style={{ color: DATE_FILTER_ACCENT }} />
             <span>{selectedLabel}</span>
-            <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${isDateDropdownOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${isDateDropdownOpen ? 'rotate-180' : ''}`}
+              style={{ color: DATE_FILTER_ACCENT }}
+            />
           </button>
 
           {isDateDropdownOpen && (
@@ -1735,8 +1888,11 @@ const closePopupCustomer = () => {
               />
               
               {/* Popover overlay */}
-              <div className="absolute right-0 mt-2 w-[280px] rounded-xl border border-gray-200 bg-white shadow-xl z-50 animate-scale-up overflow-hidden">
-                <div className="p-1.5 space-y-1">
+              <div
+                className="absolute right-0 mt-2 w-[290px] rounded-2xl border bg-white shadow-xl z-50 animate-scale-up overflow-hidden"
+                style={{ borderColor: `${DATE_FILTER_ACCENT}1f` }}
+              >
+                <div className="p-2 space-y-1">
                   {(['today', 'yesterday', 'last_7_days', 'last_30_days', 'last_90_days', 'this_year', 'custom'] as const).map((opt) => (
                     <button
                       key={opt}
@@ -1747,39 +1903,39 @@ const closePopupCustomer = () => {
                           setIsDateDropdownOpen(false);
                         }
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 text-left cursor-pointer ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 text-left cursor-pointer ${
                         dateRange === opt
-                          ? 'bg-indigo-50/60 text-indigo-600'
-                          : 'text-gray-700 hover:bg-slate-50'
+                          ? 'bg-[#4280ce]/10 text-[#4280ce] shadow-[inset_0_0_0_1px_rgba(66,128,206,0.18)]'
+                          : 'text-slate-700 hover:bg-slate-50 hover:text-[#4280ce]'
                       }`}
                     >
                       <span>{dateRangeLabels[opt]}</span>
-                      {dateRange === opt && <Check className="w-4 h-4 text-indigo-600" />}
+                      {dateRange === opt && <Check className="w-4 h-4" style={{ color: DATE_FILTER_ACCENT }} />}
                     </button>
                   ))}
                 </div>
 
                 {/* Inline custom range inputs inside the popover if dateRange is custom */}
                 {dateRange === 'custom' && (
-                  <div className="p-3 border-t border-gray-100 bg-slate-50/40 space-y-2">
-                    <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">Custom Date Range</span>
+                  <div className="p-3 border-t border-slate-100 bg-slate-50/60 space-y-3">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Custom Date Range</span>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-[10px] font-bold text-gray-500 block mb-1">Start Date</label>
+                        <label className="text-[10px] font-bold text-slate-500 block mb-1">Start Date</label>
                         <input
                           type="date"
                           value={customStart}
                           onChange={(e) => handleCustomStartChange(e.target.value)}
-                          className="w-full text-[11px] font-semibold px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                          className="w-full text-[11px] font-semibold px-2 py-1.5 border border-[#dbe4f0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4280ce] focus:border-[#4280ce] bg-white"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold text-gray-500 block mb-1">End Date</label>
+                        <label className="text-[10px] font-bold text-slate-500 block mb-1">End Date</label>
                         <input
                           type="date"
                           value={customEnd}
                           onChange={(e) => handleCustomEndChange(e.target.value)}
-                          className="w-full text-[11px] font-semibold px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                          className="w-full text-[11px] font-semibold px-2 py-1.5 border border-[#dbe4f0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4280ce] focus:border-[#4280ce] bg-white"
                         />
                       </div>
                     </div>
@@ -1788,7 +1944,8 @@ const closePopupCustomer = () => {
                       <button
                         type="button"
                         onClick={() => setIsDateDropdownOpen(false)}
-                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-extrabold rounded-md shadow-xs transition-colors duration-150 cursor-pointer"
+                        className="px-3 py-1.5 text-white text-[10px] font-extrabold rounded-md shadow-sm transition-colors duration-150 cursor-pointer hover:brightness-95"
+                        style={{ backgroundColor: DATE_FILTER_ACCENT }}
                       >
                         Apply Range
                       </button>
@@ -2110,7 +2267,7 @@ const closePopupCustomer = () => {
                         type="button"
                         onClick={() => {
                           setSegmentFilter(pill.value);
-                          setCurrentPage(1);
+                          onCustomerPageChange(1);
                           setSortColumn(null);
                           setSortDirection(null);
                           setSelectedCustomer(null);
@@ -2207,14 +2364,44 @@ const closePopupCustomer = () => {
                   </div>
                   <div>
                     <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Lifetime Spend</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                      value={draftFilterTotalSpend}
-                      onChange={(e) => setDraftFilterTotalSpend(formatSpendFilterValue(e.target.value))}
-                      placeholder="e.g. 1,00,000"
-                      className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={draftFilterMinSpend}
+                          onChange={(e) => setDraftFilterMinSpend(formatSpendFilterValue(e.target.value))}
+                          placeholder="Min e.g. 50,000"
+                          aria-invalid={Boolean(spendFilterErrors.minSpend)}
+                          className={`w-full text-xs bg-white border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all ${
+                            spendFilterErrors.minSpend ? 'border-red-400' : 'border-gray-300'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={draftFilterMaxSpend}
+                          onChange={(e) => setDraftFilterMaxSpend(formatSpendFilterValue(e.target.value))}
+                          placeholder="Max e.g. 1,00,000"
+                          aria-invalid={Boolean(spendFilterErrors.maxSpend)}
+                          className={`w-full text-xs bg-white border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all ${
+                            spendFilterErrors.maxSpend ? 'border-red-400' : 'border-gray-300'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                    {(spendFilterErrors.minSpend || spendFilterErrors.maxSpend) && (
+                      <div className="mt-1 space-y-0.5">
+                        {spendFilterErrors.minSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{spendFilterErrors.minSpend}</p>
+                        )}
+                        {spendFilterErrors.maxSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{spendFilterErrors.maxSpend}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2255,9 +2442,11 @@ const closePopupCustomer = () => {
                       onChange={(e) => setDraftFilterPaymentStatus(e.target.value)}
                       className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all cursor-pointer"
                     >
-                      <option value="All">All Statuses</option>
-                      <option value="Paid">Paid</option>
-                      <option value="Unpaid">Unpaid</option>
+                      {PAYMENT_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -2306,7 +2495,7 @@ const closePopupCustomer = () => {
 
           {isLoadingCustomers ? (
             <div className="border-t border-gray-200 bg-white">
-              {/* <CustomerDataLoader /> */}
+              <CustomerDataLoader overlay={false} />
             </div>
           ) : filteredCustomers.length === 0 ? (
             <div className="border-t border-gray-200 p-12 text-center bg-white">
@@ -2548,7 +2737,7 @@ const closePopupCustomer = () => {
                                               </th>
                                               {renderResizableHeader(compactOrderGrid, 'orderId', <>Order ID</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'orderDate', <>Order Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold font-sans text-slate-900')}
-                                              {renderResizableHeader(compactOrderGrid, 'orderStatus', <>Order Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'orderStatus', <>Fulfillment status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'totalAmount', <>Total Amount</>, 'py-1.5 px-3 text-right font-bold text-slate-900 font-sans')}
@@ -2731,9 +2920,9 @@ const closePopupCustomer = () => {
               {/* PAGINATION CONTROLS */}
               <div className="border-t border-border-subtle px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 bg-bg-card text-xs text-text-secondary">
                 <div>
-                  Showing <span className="font-semibold text-text-primary">{Math.min((currentPage - 1) * pageSize + 1, sortedCustomers.length)}</span> to{' '}
-                  <span className="font-semibold text-text-primary">{Math.min(currentPage * pageSize, sortedCustomers.length)}</span> of{' '}
-                  <span className="font-semibold text-text-primary">{sortedCustomers.length}</span> records
+                  Showing <span className="font-semibold text-text-primary">{totalCustomerCount === 0 ? 0 : Math.min((customerPageNo - 1) * customerPageSize + 1, totalCustomerCount)}</span> to{' '}
+                  <span className="font-semibold text-text-primary">{Math.min(customerPageNo * customerPageSize, totalCustomerCount)}</span> of{' '}
+                  <span className="font-semibold text-text-primary">{totalCustomerCount}</span> records
                 </div>
 
                 <div className="flex flex-wrap items-center gap-4">
@@ -2741,10 +2930,9 @@ const closePopupCustomer = () => {
                   <div className="flex items-center gap-1.5">
                     <span>Rows per page:</span>
                     <select
-                      value={pageSize}
+                      value={customerPageSize}
                       onChange={(e) => {
-                        setPageSize(Number(e.target.value));
-                        setCurrentPage(1);
+                        onCustomerPageSizeChange(Number(e.target.value));
                       }}
                       className="bg-bg-neutral border border-border-subtle rounded px-1.5 py-1 font-semibold cursor-pointer text-text-primary outline-none focus:border-brand-primary"
                     >
@@ -2759,8 +2947,8 @@ const closePopupCustomer = () => {
                   {/* Navigation buttons */}
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
+                      onClick={() => onCustomerPageChange(Math.max(customerPageNo - 1, 1))}
+                      disabled={customerPageNo === 1}
                       className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
                     >
                       Previous
@@ -2768,19 +2956,19 @@ const closePopupCustomer = () => {
 
                     {/* Pages */}
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum = currentPage;
-                      if (currentPage <= 3) pageNum = i + 1;
-                      else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
-                      else pageNum = currentPage - 2 + i;
+                      let pageNum = customerPageNo;
+                      if (customerPageNo <= 3) pageNum = i + 1;
+                      else if (customerPageNo >= totalPages - 2) pageNum = totalPages - 4 + i;
+                      else pageNum = customerPageNo - 2 + i;
 
                       if (pageNum < 1 || pageNum > totalPages) return null;
 
                       return (
                         <button
                           key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
+                          onClick={() => onCustomerPageChange(pageNum)}
                           className={`w-7 h-7 flex items-center justify-center rounded border transition-colors font-semibold cursor-pointer ${
-                            currentPage === pageNum
+                            customerPageNo === pageNum
                               ? 'bg-brand-primary border-brand-primary text-white'
                               : 'border-border-subtle bg-bg-neutral text-text-primary hover:bg-border-subtle'
                           }`}
@@ -2791,8 +2979,8 @@ const closePopupCustomer = () => {
                     })}
 
                     <button
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
+                      onClick={() => onCustomerPageChange(Math.min(customerPageNo + 1, totalPages))}
+                      disabled={customerPageNo === totalPages}
                       className="px-2.5 py-1 bg-bg-neutral border border-border-subtle rounded text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-border-subtle font-medium transition-colors"
                     >
                       Next
@@ -3015,9 +3203,11 @@ const closePopupCustomer = () => {
                     }}
                     className="text-xs bg-white border border-border-subtle px-2 py-1.5 rounded focus:outline-none cursor-pointer font-semibold"
                   >
-                    <option value="All">All Statuses</option>
-                    <option value="Paid">Paid</option>
-                    <option value="Unpaid">Unpaid</option>
+                    {PAYMENT_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -3043,9 +3233,9 @@ const closePopupCustomer = () => {
                   <span className="text-xs text-text-secondary font-semibold whitespace-nowrap">Start:</span>
                   <input
                     type="date"
-                    value={orderStartDate}
+                    value={selectedOrderStartDate}
                     onChange={(e) => {
-                      setOrderStartDate(e.target.value);
+                      setSelectedOrderStartDate(e.target.value);
                       setOrderCurrentPage(1);
                     }}
                     className="text-xs bg-white border border-border-subtle px-2 py-1.5 rounded focus:outline-none font-semibold text-text-primary"
@@ -3057,9 +3247,9 @@ const closePopupCustomer = () => {
                   <span className="text-xs text-text-secondary font-semibold whitespace-nowrap">End:</span>
                   <input
                     type="date"
-                    value={orderEndDate}
+                    value={selectedOrderEndDate}
                     onChange={(e) => {
-                      setOrderEndDate(e.target.value);
+                      setSelectedOrderEndDate(e.target.value);
                       setOrderCurrentPage(1);
                     }}
                     className="text-xs bg-white border border-border-subtle px-2 py-1.5 rounded focus:outline-none font-semibold text-text-primary"
@@ -3082,8 +3272,8 @@ const closePopupCustomer = () => {
                       setOrderStatusFilter('All');
                       setOrderMinAmount('');
                       setOrderMaxAmount('');
-                      setOrderStartDate('');
-                      setOrderEndDate('');
+                      setSelectedOrderStartDate('');
+                      setSelectedOrderEndDate('');
                       setOrderPaymentStatusFilter('All');
                       setOrderFulfillmentStatusFilter('All');
                       setOrderMinQty('');
@@ -3124,7 +3314,7 @@ const closePopupCustomer = () => {
                     {renderResizableHeader(detailedOrderGrid, 'orderId', <>Order ID</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'orderName', <>Order Name</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'orderDate', <>Order Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold font-sans text-slate-900')}
-                    {renderResizableHeader(detailedOrderGrid, 'orderStatus', <>Order Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                    {renderResizableHeader(detailedOrderGrid, 'orderStatus', <>Fulfillment status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'fulfillmentStatus', <>Fulfillment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
@@ -4245,6 +4435,109 @@ const closePopupCustomer = () => {
           </div>
         );
       })()}
+
+      {showSegmentSettings && (
+        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xxs flex items-center justify-center p-4">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 bg-slate-50 px-5 py-4">
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wide text-slate-900">Segmentation Settings</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Control VIP auto-tagging and threshold-based tagging.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSegmentSettings(false)}
+                className="rounded-full border border-gray-200 p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close segmentation settings"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-5">
+              <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 bg-white p-4">
+                <div>
+                  <div className="text-sm font-bold text-slate-900">VIP auto-tagging</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    When enabled, threshold fields are hidden and customers are auto-categorized.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setDynamicSegEnabled((prev) => !prev)}
+                  className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${
+                    dynamicSegEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+                  }`}
+                  aria-pressed={dynamicSegEnabled}
+                  aria-label="Toggle VIP auto-tagging"
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition-transform ${
+                      dynamicSegEnabled ? 'translate-x-9' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {!dynamicSegEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Total Spend Range</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={spendThreshold}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setSpendThreshold(value === '' ? 0 : Math.max(0, Number(value) || 0));
+                      }}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-xxs transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      placeholder="e.g. 150000"
+                    />
+                    <p className="mt-1 text-[10px] text-gray-500">Customers at or above this spend become VIP.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10.5px] font-bold text-gray-500 mb-1">Order Count Range</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={orderThreshold}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setOrderThreshold(value === '' ? 0 : Math.max(0, Number(value) || 0));
+                      }}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-xxs transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      placeholder="e.g. 10"
+                    />
+                    <p className="mt-1 text-[10px] text-gray-500">Customers at or above this order count become VIP.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-200 bg-slate-50 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setShowSegmentSettings(false)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSegmentationSettings}
+                className="rounded-lg bg-brand-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-brand-primary-hover"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
