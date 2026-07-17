@@ -528,6 +528,7 @@ export default function App() {
                   setCustomerPageSize(pageSize);
                   setCustomerPageNo(DEFAULT_CUSTOMER_PAGE_NO);
                 }}
+                onShowToast={showToast}
               />
             </div>
           </main>

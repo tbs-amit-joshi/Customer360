@@ -4,7 +4,7 @@ import {
   X, CheckSquare, Settings, Check, CreditCard, ShoppingBag, 
   Ticket, Gift, HelpCircle, ExternalLink, ChevronDown, ChevronRight,
   Mail, ChevronLeft, Edit, Eye, ChevronUp, RefreshCw, Users,
-  Calendar, Sparkles, TrendingUp, LayoutGrid
+  Calendar, Sparkles, TrendingUp, LayoutGrid, Star
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -279,6 +279,7 @@ interface CustomerSummaryViewProps {
   totalCustomerCount: number;
   onCustomerPageChange: (pageNo: number) => void;
   onCustomerPageSizeChange: (pageSize: number) => void;
+  onShowToast?: (message: string) => void;
   onCustomerQueryChange?: (filters: Pick<
     CustomerSyncOptions,
     | 'customerType'
@@ -565,6 +566,7 @@ export default function CustomerSummaryView({
   totalCustomerCount,
   onCustomerPageChange,
   onCustomerPageSizeChange,
+  onShowToast,
   onCustomerQueryChange
 }: CustomerSummaryViewProps) {
   // Navigation & Details States
@@ -584,6 +586,7 @@ export default function CustomerSummaryView({
   const [discountRowsError, setDiscountRowsError] = useState<string | null>(null);
   const [discountPage, setDiscountPage] = useState(1);
   const [activeQuickActionCustId, setActiveQuickActionCustId] = useState<string | null>(null);
+  const [quickActionMenuPosition, setQuickActionMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
 
   // Analytics Cards states
@@ -1019,6 +1022,11 @@ const closePopupCustomer = () => {
 
   const applyCustomerFilters = () => {
     if (spendFilterErrors.minSpend || spendFilterErrors.maxSpend) {
+      const validationMessage = [spendFilterErrors.minSpend, spendFilterErrors.maxSpend]
+        .filter(Boolean)
+        .join(' ');
+
+      onShowToast?.(validationMessage || 'Please enter a valid lifetime spend range.');
       return;
     }
 
@@ -1192,6 +1200,11 @@ const closePopupCustomer = () => {
     setShowOrderProductFilters(false);
     onCustomerPageChange(1);
     onRefreshCustomers('All');
+  };
+
+  const closeQuickActionMenu = () => {
+    setActiveQuickActionCustId(null);
+    setQuickActionMenuPosition(null);
   };
 
   // Filtered customer list
@@ -2372,10 +2385,7 @@ const closePopupCustomer = () => {
                           value={draftFilterMinSpend}
                           onChange={(e) => setDraftFilterMinSpend(formatSpendFilterValue(e.target.value))}
                           placeholder="Min e.g. 50,000"
-                          aria-invalid={Boolean(spendFilterErrors.minSpend)}
-                          className={`w-full text-xs bg-white border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all ${
-                            spendFilterErrors.minSpend ? 'border-red-400' : 'border-gray-300'
-                          }`}
+                          className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
                         />
                       </div>
                       <div>
@@ -2385,23 +2395,10 @@ const closePopupCustomer = () => {
                           value={draftFilterMaxSpend}
                           onChange={(e) => setDraftFilterMaxSpend(formatSpendFilterValue(e.target.value))}
                           placeholder="Max e.g. 1,00,000"
-                          aria-invalid={Boolean(spendFilterErrors.maxSpend)}
-                          className={`w-full text-xs bg-white border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all ${
-                            spendFilterErrors.maxSpend ? 'border-red-400' : 'border-gray-300'
-                          }`}
+                          className="w-full text-xs bg-white border border-gray-300 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-700 shadow-xxs transition-all"
                         />
                       </div>
                     </div>
-                    {(spendFilterErrors.minSpend || spendFilterErrors.maxSpend) && (
-                      <div className="mt-1 space-y-0.5">
-                        {spendFilterErrors.minSpend && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{spendFilterErrors.minSpend}</p>
-                        )}
-                        {spendFilterErrors.maxSpend && (
-                          <p className="text-[11px] font-medium text-red-600 leading-snug">{spendFilterErrors.maxSpend}</p>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -2509,7 +2506,8 @@ const closePopupCustomer = () => {
             </div>
           ) : (
             <div className="border-t border-gray-300 overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="hidden xl:block">
+                <div className="overflow-x-auto">
                 <table
                   className="w-full text-left border-collapse table-fixed min-w-[1200px]"
                   style={{ minWidth: `${customerGrid.tableWidth}px` }}
@@ -2530,7 +2528,7 @@ const closePopupCustomer = () => {
                           onResizeEnd={customerGrid.handleResizeEnd}
                         />
                       </th>
-                      {renderResizableHeader(customerGrid, 'name', <>Customer Name <SortArrow column="name" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('name'))}
+                      {renderResizableHeader(customerGrid, 'name', <>Customer Name / Id <SortArrow column="name" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('name'))}
                       {renderResizableHeader(customerGrid, 'email', <>Email / Phone <SortArrow column="email" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('email'))}
                       {renderResizableHeader(customerGrid, 'country', <>Country <SortArrow column="country" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('country'))}
                       {renderResizableHeader(customerGrid, 'location', <>Location <SortArrow column="location" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('location'))}
@@ -2544,11 +2542,23 @@ const closePopupCustomer = () => {
                   </thead>
                   <tbody className="bg-white">
                     {paginatedCustomers.map((cust, idx) => {
-                      const segmentStyles = {
-                        'VIP': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                        'Regular': 'bg-blue-50 text-blue-700 border-blue-200',
-                        'New': 'bg-gray-50 text-gray-700 border-gray-200',
-                        'Inactive': 'bg-red-50 text-red-600 border-red-200'
+                      const segmentVisuals: Record<string, { className: string; icon: React.ReactNode }> = {
+                        VIP: {
+                          className: 'bg-[#fde047] text-[#713f12] border-[#f59e0b] shadow-[0_1px_0_rgba(245,158,11,0.25)] font-black',
+                          icon: <Star className="w-3.5 h-3.5 fill-[#d97706] text-[#b45309]" />
+                        },
+                        Regular: {
+                          className: 'bg-sky-50 text-sky-700 border-sky-200',
+                          icon: <Sparkles className="w-3 h-3" />
+                        },
+                        New: {
+                          className: 'bg-slate-50 text-slate-700 border-slate-200',
+                          icon: <Users className="w-3 h-3" />
+                        },
+                        Inactive: {
+                          className: 'bg-rose-50 text-rose-700 border-rose-200',
+                          icon: <X className="w-3 h-3" />
+                        }
                       };
 
                       const leadStatusStyles = {
@@ -2611,9 +2621,15 @@ const closePopupCustomer = () => {
                             <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle">
                               {(() => {
                                 const customerType = cust.customerType ?? cust.segment;
+                                const segmentVisual = segmentVisuals[customerType] || {
+                                  className: 'bg-[#4280ce]/10 text-[#4280ce] border-[#4280ce]/20',
+                                  icon: <Users className="w-3 h-3" />
+                                };
+
                                 return (
-                                  <span className={`text-[11px] px-2.5 py-1 border rounded-full font-bold uppercase tracking-wide ${segmentStyles[customerType]}`}>
-                                    {customerType}
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 border rounded-full font-bold uppercase tracking-wide whitespace-nowrap ${segmentVisual.className}`}>
+                                    {segmentVisual.icon}
+                                    <span>{customerType}</span>
                                   </span>
                                 );
                               })()}
@@ -2623,7 +2639,30 @@ const closePopupCustomer = () => {
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setActiveQuickActionCustId(activeQuickActionCustId === cust.id ? null : cust.id);
+                                    if (activeQuickActionCustId === cust.id) {
+                                      closeQuickActionMenu();
+                                      return;
+                                    }
+
+                                    const buttonRect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                    const menuWidth = 220;
+                                    const menuHeight = 144;
+                                    const padding = 12;
+                                    const openLeft = buttonRect.left - menuWidth - 12;
+                                    const openRight = buttonRect.right + 12;
+                                    const nextLeft = openLeft >= padding
+                                      ? openLeft
+                                      : Math.min(window.innerWidth - menuWidth - padding, openRight);
+                                    const nextTop = Math.min(
+                                      window.innerHeight - menuHeight - padding,
+                                      Math.max(padding, buttonRect.top)
+                                    );
+
+                                    setQuickActionMenuPosition({
+                                      top: nextTop,
+                                      left: Math.max(padding, nextLeft)
+                                    });
+                                    setActiveQuickActionCustId(cust.id);
                                   }}
                                   className={`p-2 rounded-xl transition-all border-2 inline-flex items-center justify-center cursor-pointer ${
                                     activeQuickActionCustId === cust.id 
@@ -2647,17 +2686,17 @@ const closePopupCustomer = () => {
                                       className="fixed inset-0 z-40 cursor-default bg-transparent" 
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setActiveQuickActionCustId(null);
+                                        closeQuickActionMenu();
                                       }}
                                     />
                                     
                                     {/* Single Column List Popover Overlay */}
                                     <div 
-                                      className={`absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-2 w-[220px] animate-scale-up ${
-                                        idx >= Math.max(1, paginatedCustomers.length - 2)
-                                          ? 'right-full mr-3 bottom-0 origin-bottom-right'
-                                          : 'right-full mr-3 top-0 origin-top-right'
-                                      }`}
+                                      className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-2 w-[220px] animate-scale-up"
+                                      style={{
+                                        top: `${quickActionMenuPosition?.top ?? 0}px`,
+                                        left: `${quickActionMenuPosition?.left ?? 0}px`
+                                      }}
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <div className="flex flex-col gap-1.5">
@@ -2666,7 +2705,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('abandoned');
-                                            setActiveQuickActionCustId(null);
+                                            closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-[#ff4d6d]/5 border border-gray-100 hover:border-[#ff4d6d]/20 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
                                         >
@@ -2679,7 +2718,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('refunds');
-                                            setActiveQuickActionCustId(null);
+                                            closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-emerald-50/40 border border-gray-100 hover:border-emerald-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
                                         >
@@ -2692,7 +2731,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('discounts');
-                                            setActiveQuickActionCustId(null);
+                                            closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-purple-50/40 border border-gray-100 hover:border-purple-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
                                         >
@@ -2915,6 +2954,299 @@ const closePopupCustomer = () => {
                     })}
                   </tbody>
                 </table>
+                </div>
+              </div>
+
+              {/* MOBILE CUSTOMER CARDS */}
+              <div className="xl:hidden bg-white">
+                <div className="divide-y divide-gray-200">
+                  {paginatedCustomers.map((cust) => {
+                    const segmentVisuals: Record<string, { className: string; icon: React.ReactNode }> = {
+                      VIP: {
+                        className: 'bg-[#fde047] text-[#713f12] border-[#f59e0b] shadow-[0_1px_0_rgba(245,158,11,0.25)] font-black',
+                        icon: <Star className="w-3.5 h-3.5 fill-[#d97706] text-[#b45309]" />
+                      },
+                      Regular: {
+                        className: 'bg-sky-50 text-sky-700 border-sky-200',
+                        icon: <Sparkles className="w-3 h-3" />
+                      },
+                      New: {
+                        className: 'bg-slate-50 text-slate-700 border-slate-200',
+                        icon: <Users className="w-3 h-3" />
+                      },
+                      Inactive: {
+                        className: 'bg-rose-50 text-rose-700 border-rose-200',
+                        icon: <X className="w-3 h-3" />
+                      }
+                    };
+
+                    const customerType = cust.customerType ?? cust.segment;
+                    const segmentVisual = segmentVisuals[customerType] || {
+                      className: 'bg-[#4280ce]/10 text-[#4280ce] border-[#4280ce]/20',
+                      icon: <Users className="w-3 h-3" />
+                    };
+                    const isExpanded = selectedCustomer && selectedCustomer.id === cust.id;
+
+                    return (
+                      <div key={cust.id} className={`p-4 ${isExpanded ? 'bg-slate-50/70' : 'bg-white'}`}>
+                        <div className="flex items-start gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCustomer(isExpanded ? null : cust)}
+                            className="mt-0.5 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 bg-white text-slate-700 shadow-xxs"
+                            aria-label={isExpanded ? 'Collapse customer details' : 'Expand customer details'}
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="text-[15px] font-bold text-text-primary truncate">
+                                    {cust.name ? formatCustomerDisplayName(cust.name) : '-'}
+                                  </div>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-1 border rounded-full text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${segmentVisual.className}`}>
+                                    {segmentVisual.icon}
+                                    <span>{customerType}</span>
+                                  </span>
+                                </div>
+                                <div className="text-[12px] text-text-secondary font-mono mt-0.5">{cust.id}</div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (activeQuickActionCustId === cust.id) {
+                                    closeQuickActionMenu();
+                                    return;
+                                  }
+
+                                  const buttonRect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                  const menuWidth = 220;
+                                  const menuHeight = 144;
+                                  const padding = 12;
+                                  const openLeft = buttonRect.left - menuWidth - 12;
+                                  const openRight = buttonRect.right + 12;
+                                  const nextLeft = openLeft >= padding
+                                    ? openLeft
+                                    : Math.min(window.innerWidth - menuWidth - padding, openRight);
+                                  const nextTop = Math.min(
+                                    window.innerHeight - menuHeight - padding,
+                                    Math.max(padding, buttonRect.top)
+                                  );
+
+                                  setQuickActionMenuPosition({
+                                    top: nextTop,
+                                    left: Math.max(padding, nextLeft)
+                                  });
+                                  setActiveQuickActionCustId(cust.id);
+                                }}
+                                className={`shrink-0 w-9 h-9 rounded-xl border-2 inline-flex items-center justify-center cursor-pointer transition-all ${
+                                  activeQuickActionCustId === cust.id
+                                    ? 'border-amber-500 bg-[#e6f4ea] text-[#137333]'
+                                    : 'border-transparent bg-[#e6f4ea] text-[#137333] hover:bg-[#d2e3fc] hover:text-[#185abc]'
+                                }`}
+                                title="Quick Action"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Email / Phone</div>
+                                <div className="mt-1 font-medium text-text-primary truncate" title={cust.email}>{cust.email}</div>
+                                <div className="text-text-secondary mt-0.5">{cust.phone}</div>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Country</div>
+                                <div className="mt-1 font-medium text-text-primary truncate" title={cust.country || '-'}>
+                                  {cust.country || '-'}
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Orders</div>
+                                <div className="mt-1 font-semibold text-text-primary">{cust.totalOrders} orders</div>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Lifetime Spend</div>
+                                <div className="mt-1 font-semibold text-text-primary">
+                                  {cust.totalSpend > 0 ? formatCurrencyAmount(cust.totalSpend, cust.currencyCode) : '-'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Last Order Date</div>
+                                <div className="mt-1 font-medium text-text-primary">{cust.lastOrderDate || '-'}</div>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Last Login</div>
+                                <div className="mt-1 font-medium text-text-primary">{cust.lastLogin || '-'}</div>
+                              </div>
+                            </div>
+
+                            {isExpanded && selectedCustomer?.id === cust.id && (
+                              <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Customer Details</div>
+                                    <div className="text-sm font-bold text-text-primary mt-0.5">{cust.location || '-'}</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedCustomer(null)}
+                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-gray-300 bg-white text-gray-700"
+                                  >
+                                    Collapse
+                                  </button>
+                                </div>
+
+                                <div className="mt-4 space-y-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Orders</div>
+                                    <div className="text-[11px] font-semibold text-text-secondary">
+                                      {filteredAndPaginatedOrders.total} order{filteredAndPaginatedOrders.total === 1 ? '' : 's'}
+                                    </div>
+                                  </div>
+
+                                  {filteredAndPaginatedOrders.items.length > 0 ? (
+                                    filteredAndPaginatedOrders.items.map((order) => {
+                                      const orderLineItems = order.lineItems || [];
+                                      const orderName = order.name || `Order ${order.orderId}`;
+                                      const isExpandedOrder = !!expandedOrderIds[order.orderId];
+
+                                      return (
+                                        <div key={order.orderId} className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-xxs">
+                                          <button
+                                            type="button"
+                                            onClick={() => setExpandedOrderIds(prev => ({ ...prev, [order.orderId]: !prev[order.orderId] }))}
+                                            className="w-full text-left p-3.5 flex items-start justify-between gap-3 hover:bg-slate-50 transition-colors"
+                                          >
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-sm font-bold text-text-primary font-mono">{order.orderId}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${getStatusBadgeMeta('payment', order.paymentStatus)?.className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                  {(getStatusBadgeMeta('payment', order.paymentStatus)?.label || order.paymentStatus || '-')}
+                                                </span>
+                                              </div>
+                                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-secondary">
+                                                <span>{order.date}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${getStatusBadgeMeta('order', order.status)?.className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                  {(getStatusBadgeMeta('order', order.status)?.label || order.status || '-')}
+                                                </span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${getStatusBadgeMeta('delivery', order.deliveryStatus)?.className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                  {(getStatusBadgeMeta('delivery', order.deliveryStatus)?.label || order.deliveryStatus || '-')}
+                                                </span>
+                                              </div>
+                                              <div className="mt-2 text-[11px] text-text-secondary">
+                                                {orderName}
+                                              </div>
+                                            </div>
+
+                                            <div className="shrink-0 text-right">
+                                              <div className="text-sm font-bold text-text-primary">
+                                                {order.totalAmount && order.totalAmount > 0
+                                                  ? formatCurrencyAmount(order.totalAmount, selectedCustomer?.currencyCode)
+                                                  : '-'}
+                                              </div>
+                                              <div className="mt-2 inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-slate-700">
+                                                {isExpandedOrder ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                              </div>
+                                            </div>
+                                          </button>
+
+                                          {isExpandedOrder && (
+                                            <div className="border-t border-gray-200 bg-slate-50/40 p-3">
+                                              <OrderProductBreakdown
+                                                orderId={order.orderId}
+                                                orderDate={order.date}
+                                                orderStatus={order.status}
+                                                totalAmount={order.totalAmount ?? order.amount}
+                                                currencyCode={selectedCustomer?.currencyCode}
+                                                customerId={cust.id}
+                                                customerName={cust.name}
+                                                orderName={order.name}
+                                                items={orderLineItems}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    <div className="rounded-xl border border-dashed border-gray-200 p-3 text-[12px] text-text-secondary bg-white">
+                                      No orders available for this customer.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {activeQuickActionCustId === cust.id && quickActionMenuPosition && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40 cursor-default bg-transparent"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeQuickActionMenu();
+                              }}
+                            />
+                            <div
+                              className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-2 w-[220px] animate-scale-up"
+                              style={{
+                                top: `${quickActionMenuPosition.top}px`,
+                                left: `${quickActionMenuPosition.left}px`
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex flex-col gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    setPopupCustomer(cust);
+                                    setPopupActiveTab('abandoned');
+                                    closeQuickActionMenu();
+                                  }}
+                                  className="bg-slate-50 hover:bg-[#ff4d6d]/5 border border-gray-100 hover:border-[#ff4d6d]/20 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
+                                >
+                                  <ShoppingBag className="w-4 h-4 text-[#ff4d6d]" />
+                                  <span className="text-[12px] font-bold text-gray-700">Abandoned checkout</span>
+                                </div>
+                                <div
+                                  onClick={() => {
+                                    setPopupCustomer(cust);
+                                    setPopupActiveTab('refunds');
+                                    closeQuickActionMenu();
+                                  }}
+                                  className="bg-slate-50 hover:bg-emerald-50/40 border border-gray-100 hover:border-emerald-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
+                                >
+                                  <RefreshCw className="w-4 h-4 text-emerald-600" />
+                                  <span className="text-[12px] font-bold text-gray-700">Refund status</span>
+                                </div>
+                                <div
+                                  onClick={() => {
+                                    setPopupCustomer(cust);
+                                    setPopupActiveTab('discounts');
+                                    closeQuickActionMenu();
+                                  }}
+                                  className="bg-slate-50 hover:bg-purple-50/40 border border-gray-100 hover:border-purple-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
+                                >
+                                  <Ticket className="w-4 h-4 text-purple-600" />
+                                  <span className="text-[12px] font-bold text-gray-700">Applied discount</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* PAGINATION CONTROLS */}
