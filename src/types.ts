@@ -123,6 +123,7 @@ export interface CustomerAbandonedCheckout {
   variantPrices: Array<number | null>;
   price: number;
   qty: number;
+  nextScheduleEmail?: string;
   abandonedAt: string;
   currencyCode?: string;
 }
@@ -132,9 +133,21 @@ export interface Customer {
   name: string;
   email: string;
   phone: string;
+  createdAt?: string;
+  updatedAt?: string;
   currencyCode?: string;
   country: string;
   location: string;
+  address1?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  countryCode?: string;
+  verifiedEmail?: boolean;
+  taxExempt?: boolean;
+  note?: string;
+  tags?: string[];
   lastLogin: string;
   totalOrders: number;
   totalSpend: number;

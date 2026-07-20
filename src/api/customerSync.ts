@@ -147,6 +147,7 @@ interface ShopifyAbandonedCheckoutDto {
   subtotalPriceSet?: ShopifyAbandonedCheckoutMoneyDto | null;
   totalPriceSet?: ShopifyAbandonedCheckoutMoneyDto | null;
   lineItems?: ShopifyAbandonedCheckoutLineItemDto[] | null;
+  nextScheduleEmail?: string | null;
 }
 
 interface AbandonedCheckoutApiEnvelope {
@@ -264,6 +265,14 @@ export interface CustomerSyncOptions {
   orderDateFrom?: string;
   orderDateTo?: string;
   paymentStatus?: string;
+  lastOrderDateFrom?: string;
+  lastOrderDateTo?: string;
+  lastLoginFrom?: string;
+  lastLoginTo?: string;
+  createdDateFrom?: string;
+  createdDateTo?: string;
+  fulfillmentStatus?: string;
+  deliveryStatus?: string;
   productName?: string;
   productVariant?: string;
   signal?: AbortSignal;
@@ -573,10 +582,20 @@ const buildCustomerSyncQuery = (options: {
   orderDateFrom?: string;
   orderDateTo?: string;
   paymentStatus?: string;
+  lastOrderDateFrom?: string;
+  lastOrderDateTo?: string;
+  lastLoginFrom?: string;
+  lastLoginTo?: string;
+  createdDateFrom?: string;
+  createdDateTo?: string;
+  fulfillmentStatus?: string;
+  deliveryStatus?: string;
   productName?: string;
   productVariant?: string;
   pageNo?: number;
   pageSize?: number;
+  lifetimeSpendMin?: string | number;
+  lifetimeSpendMax?: string | number;
 }): string => {
   const query = new URLSearchParams();
 
@@ -646,6 +665,38 @@ const buildCustomerSyncQuery = (options: {
 
   if (options.paymentStatus?.trim()) {
     query.set('paymentStatus', options.paymentStatus.trim());
+  }
+
+  if (options.lastOrderDateFrom?.trim()) {
+    query.set('LastOrderDateFrom', options.lastOrderDateFrom.trim());
+  }
+
+  if (options.lastOrderDateTo?.trim()) {
+    query.set('LastOrderDateTo', options.lastOrderDateTo.trim());
+  }
+
+  if (options.lastLoginFrom?.trim()) {
+    query.set('LastLoginFrom', options.lastLoginFrom.trim());
+  }
+
+  if (options.lastLoginTo?.trim()) {
+    query.set('LastLoginTo', options.lastLoginTo.trim());
+  }
+
+  if (options.createdDateFrom?.trim()) {
+    query.set('CreatedDateFrom', options.createdDateFrom.trim());
+  }
+
+  if (options.createdDateTo?.trim()) {
+    query.set('CreatedDateTo', options.createdDateTo.trim());
+  }
+
+  if (options.fulfillmentStatus?.trim()) {
+    query.set('FulfillmentStatus', options.fulfillmentStatus.trim());
+  }
+
+  if (options.deliveryStatus?.trim()) {
+    query.set('DeliveryStatus', options.deliveryStatus.trim());
   }
 
   if (options.productName?.trim()) {
@@ -1205,6 +1256,14 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     orderDateFrom: options.orderDateFrom,
     orderDateTo: options.orderDateTo,
     paymentStatus: options.paymentStatus,
+    lastOrderDateFrom: options.lastOrderDateFrom,
+    lastOrderDateTo: options.lastOrderDateTo,
+    lastLoginFrom: options.lastLoginFrom,
+    lastLoginTo: options.lastLoginTo,
+    createdDateFrom: options.createdDateFrom,
+    createdDateTo: options.createdDateTo,
+    fulfillmentStatus: options.fulfillmentStatus,
+    deliveryStatus: options.deliveryStatus,
     productName: options.productName,
     productVariant: options.productVariant,
     pageNo,
@@ -1245,18 +1304,30 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     const leadStatus = getLeadStatus(orderCount);
     const customerType = normalizeCustomerType(customer.customerType) ?? getCustomerSegment(customer, orderCount, totalSpend);
 
-    return {
-      id: customerId,
-      name: customerName,
-      email: customer.email?.trim() || '-',
-      phone: customer.phone?.trim() || customer.defaultAddress?.phone?.trim() || '-',
-      currencyCode: customer.amountSpent?.currencyCode?.trim() || undefined,
-      country,
-      location,
-      lastLogin: '-',
-      totalOrders: orderCount,
-      totalSpend,
-      lastOrderDate,
+  return {
+    id: customerId,
+    name: customerName,
+    email: customer.email?.trim() || '-',
+    phone: customer.phone?.trim() || customer.defaultAddress?.phone?.trim() || '-',
+    createdAt: parseDateString(customer.createdAt) || '-',
+    updatedAt: parseDateString(customer.updatedAt) || '-',
+    currencyCode: customer.amountSpent?.currencyCode?.trim() || undefined,
+    country,
+    location,
+    address1: customer.defaultAddress?.address1?.trim() || undefined,
+    address2: customer.defaultAddress?.address2?.trim() || undefined,
+    city: customer.defaultAddress?.city?.trim() || undefined,
+    state: customer.defaultAddress?.province?.trim() || customer.state?.trim() || undefined,
+    postalCode: customer.defaultAddress?.zip?.trim() || undefined,
+    countryCode: customer.defaultAddress?.countryCodeV2?.trim() || undefined,
+    verifiedEmail: customer.verifiedEmail ?? undefined,
+    taxExempt: customer.taxExempt ?? undefined,
+    note: customer.note?.trim() || undefined,
+    tags: customer.tags?.filter(Boolean).map(tag => tag.trim()) || undefined,
+    lastLogin: '-',
+    totalOrders: orderCount,
+    totalSpend,
+    lastOrderDate,
       leadNo: 'None',
       leadStatus,
       segment: customerType,
@@ -1312,6 +1383,7 @@ const mapAbandonedCheckout = (checkout: ShopifyAbandonedCheckoutDto, index: numb
     variantPrices: variantPrices.length > 0 ? variantPrices : [null],
     price: subtotalAmount,
     qty: qty > 0 ? qty : lineItems.length || 0,
+    nextScheduleEmail: checkout.nextScheduleEmail?.trim() || '-',
     abandonedAt: parseDateString(checkout.createdAt) || '-',
     currencyCode
   };

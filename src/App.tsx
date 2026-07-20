@@ -29,6 +29,14 @@ type CustomerQueryFilters = Pick<
   | 'orderDateFrom'
   | 'orderDateTo'
   | 'paymentStatus'
+  | 'lastOrderDateFrom'
+  | 'lastOrderDateTo'
+  | 'lastLoginFrom'
+  | 'lastLoginTo'
+  | 'createdDateFrom'
+  | 'createdDateTo'
+  | 'fulfillmentStatus'
+  | 'deliveryStatus'
   | 'productName'
   | 'productVariant'
 >;
@@ -45,6 +53,14 @@ const EMPTY_CUSTOMER_QUERY_FILTERS: CustomerQueryFilters = {
   orderDateFrom: '',
   orderDateTo: '',
   paymentStatus: 'All',
+  lastOrderDateFrom: '',
+  lastOrderDateTo: '',
+  lastLoginFrom: '',
+  lastLoginTo: '',
+  createdDateFrom: '',
+  createdDateTo: '',
+  fulfillmentStatus: 'All',
+  deliveryStatus: 'All',
   productName: '',
   productVariant: ''
 };
@@ -65,6 +81,14 @@ const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFil
     'orderDateFrom',
     'orderDateTo',
     'paymentStatus',
+    'lastOrderDateFrom',
+    'lastOrderDateTo',
+    'lastLoginFrom',
+    'lastLoginTo',
+    'createdDateFrom',
+    'createdDateTo',
+    'fulfillmentStatus',
+    'deliveryStatus',
     'productName',
     'productVariant'
   ];
@@ -170,6 +194,14 @@ export default function App() {
         orderDateFrom: customerQueryFilters.orderDateFrom,
         orderDateTo: customerQueryFilters.orderDateTo,
         paymentStatus: customerQueryFilters.paymentStatus,
+        lastOrderDateFrom: customerQueryFilters.lastOrderDateFrom,
+        lastOrderDateTo: customerQueryFilters.lastOrderDateTo,
+        lastLoginFrom: customerQueryFilters.lastLoginFrom,
+        lastLoginTo: customerQueryFilters.lastLoginTo,
+        createdDateFrom: customerQueryFilters.createdDateFrom,
+        createdDateTo: customerQueryFilters.createdDateTo,
+        fulfillmentStatus: customerQueryFilters.fulfillmentStatus,
+        deliveryStatus: customerQueryFilters.deliveryStatus,
         productName: customerQueryFilters.productName,
         productVariant: customerQueryFilters.productVariant,
         pageNo: requestPageNo,
@@ -209,6 +241,14 @@ export default function App() {
     customerQueryFilters.orderDateFrom,
     customerQueryFilters.orderDateTo,
     customerQueryFilters.paymentStatus,
+    customerQueryFilters.lastOrderDateFrom,
+    customerQueryFilters.lastOrderDateTo,
+    customerQueryFilters.lastLoginFrom,
+    customerQueryFilters.lastLoginTo,
+    customerQueryFilters.createdDateFrom,
+    customerQueryFilters.createdDateTo,
+    customerQueryFilters.fulfillmentStatus,
+    customerQueryFilters.deliveryStatus,
     customerQueryFilters.productName,
     customerQueryFilters.productVariant,
     customerPageNo,
@@ -228,6 +268,14 @@ export default function App() {
       orderDateFrom: filters.orderDateFrom ?? '',
       orderDateTo: filters.orderDateTo ?? '',
       paymentStatus: filters.paymentStatus ?? 'All',
+      lastOrderDateFrom: filters.lastOrderDateFrom ?? '',
+      lastOrderDateTo: filters.lastOrderDateTo ?? '',
+      lastLoginFrom: filters.lastLoginFrom ?? '',
+      lastLoginTo: filters.lastLoginTo ?? '',
+      createdDateFrom: filters.createdDateFrom ?? '',
+      createdDateTo: filters.createdDateTo ?? '',
+      fulfillmentStatus: filters.fulfillmentStatus ?? 'All',
+      deliveryStatus: filters.deliveryStatus ?? 'All',
       productName: filters.productName ?? '',
       productVariant: filters.productVariant ?? ''
     };
