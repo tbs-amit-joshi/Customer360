@@ -153,6 +153,19 @@ export default function App() {
     setTimeout(() => setGlobalToast(null), 4000);
   };
 
+  const [shopDomain, setShopDomain] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shop = params.get("shop") || localStorage.getItem("shopDomain");
+
+    if (shop) {
+      localStorage.setItem("shopDomain", shop);
+      setShopDomain(shop);
+    }
+  }, []);
+
+
   // Sync to localStorage on alterations
   useEffect(() => {
     localStorage.setItem('tech_crm_leads', JSON.stringify(leads));
@@ -524,9 +537,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-base font-extrabold text-text-primary tracking-tight">Customer 360</span>
-                  <span className="text-[10px] bg-brand-bg-active text-brand-primary font-bold px-2 py-0.5 rounded-full border border-brand-primary/10">
-                    Shopify Plus
-                  </span>
                 </div>
               </div>
 

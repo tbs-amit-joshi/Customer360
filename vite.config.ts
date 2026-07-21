@@ -19,6 +19,9 @@ export default defineConfig(() => {
           secure: false,
         },
       },
+      allowedHosts: [
+        "dugout-gothic-thrift.ngrok-free.dev"
+      ],
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // File watching is disabled when requested to reduce noise during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
