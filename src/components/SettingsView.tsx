@@ -8,9 +8,24 @@ import {
   fetchCustomerSegmentationSettings,
   saveCustomerSegmentationSettings,
 } from '../api/customerSegmentation';
+import {
+  fetchEmailTemplates,
+  fetchEmailTemplatesByChannelType,
+  deleteEmailTemplate,
+  saveEmailTemplate,
+  type EmailTemplateApiRecord,
+  type EmailTemplateSaveRequest,
+} from '../api/emailTemplates';
+import {
+  fetchCampaignAutomationsByShopDomain,
+  saveCampaignAutomation,
+  type CampaignAutomationApiRecord,
+  type CampaignAutomationSaveRequest,
+} from '../api/campaignAutomation';
 
 interface CampaignTemplate {
   id: string;
+  serverId?: number | null;
   name: string;
   type: 'Email' | 'WhatsApp';
   status: 'Active' | 'Inactive';
@@ -21,6 +36,256 @@ interface CampaignTemplate {
   eventType?: 'Customer Action' | 'Scheduled notification' | 'Festival';
   customerActionType?: 'All Customer' | 'Abounded checkout' | 'new customer' | 'In Active customer' | 'VIP Customer';
 }
+
+function formatCustomerActionTriggerLabel(trigger?: string): string {
+  switch (trigger?.trim().toLowerCase()) {
+    case 'all customer':
+      return 'All Customer';
+    case 'new customer':
+      return 'New Customer';
+    case 'abounded checkout':
+    case 'abandoned checkout':
+      return 'Abandoned Checkout';
+    case 'in active customer':
+    case 'inactive customer':
+      return 'Inactive Customer';
+    case 'vip customer':
+      return 'VIP Customer';
+    default:
+      return trigger?.trim() || '';
+  }
+}
+
+function mapApiCustomerActionTrigger(trigger?: string): CampaignTemplate['customerActionType'] | undefined {
+  switch (trigger?.trim().toLowerCase()) {
+    case 'all customer':
+      return 'All Customer';
+    case 'new customer':
+      return 'new customer';
+    case 'abandoned checkout':
+      return 'Abounded checkout';
+    case 'inactive customer':
+      return 'In Active customer';
+    case 'vip customer':
+      return 'VIP Customer';
+    default:
+      return undefined;
+  }
+}
+
+function mapCustomerActionTriggerToApi(trigger?: CampaignTemplate['customerActionType']): string {
+  switch (trigger) {
+    case 'All Customer':
+      return 'All Customer';
+    case 'new customer':
+      return 'New Customer';
+    case 'Abounded checkout':
+      return 'Abandoned Checkout';
+    case 'In Active customer':
+      return 'Inactive Customer';
+    case 'VIP Customer':
+      return 'VIP Customer';
+    default:
+      return '';
+  }
+}
+
+function formatDateOnly(value?: string | null): string {
+  if (!value) {
+    return '';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  return parsed.toISOString().split('T')[0];
+}
+
+function mapApiChannelType(channelType?: string): CampaignTemplate['type'] {
+  if ((channelType || '').toLowerCase().includes('whatsapp')) {
+    return 'WhatsApp';
+  }
+
+  return 'Email';
+}
+
+function mapChannelTypeToApi(channelType: CampaignTemplate['type']): string {
+  return channelType === 'WhatsApp' ? 'WhatsApp Outbound' : 'Email Outbound';
+}
+
+function mapRegistryChannelTypeToApi(channelType?: 'Email' | 'Whatsapp' | ''): string {
+  if (channelType === 'Whatsapp') {
+    return 'WhatsApp Outbound';
+  }
+
+  if (channelType === 'Email') {
+    return 'Email Outbound';
+  }
+
+  return '';
+}
+
+function mapEmailTemplateToCampaignTemplate(template: EmailTemplateApiRecord, index: number): CampaignTemplate {
+  const numericId = typeof template.id === 'number' && template.id > 0 ? template.id : null;
+  const displayId = numericId !== null
+    ? `TEMP-${String(numericId).padStart(3, '0')}`
+    : `TEMP-${String(index + 1).padStart(3, '0')}`;
+
+  return {
+    id: displayId,
+    serverId: numericId,
+    name: template.templateName?.trim() || 'Untitled Template',
+    type: mapApiChannelType(template.channelType),
+    status: template.status?.trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active',
+    subject: template.emailSubjectLine?.trim() || '',
+    content: template.templateContentBody?.trim() || '',
+    createdDate: formatDateOnly(template.createdAt),
+    lastUpdated: formatDateOnly(template.updatedAt || template.createdAt),
+    eventType: template.eventType?.trim() as CampaignTemplate['eventType'] | undefined,
+    customerActionType: mapApiCustomerActionTrigger(template.customerActionTrigger)
+  };
+}
+
+function buildEmailTemplateSaveRequest(template: Partial<CampaignTemplate>, serverId?: number | null): EmailTemplateSaveRequest {
+  const channelType = mapChannelTypeToApi((template.type || 'Email') as CampaignTemplate['type']);
+  const eventType = template.eventType || 'Customer Action';
+  const customerActionTrigger =
+    eventType === 'Customer Action'
+      ? mapCustomerActionTriggerToApi(template.customerActionType) || null
+      : null;
+  const emailSubjectLine =
+    channelType === 'Email Outbound'
+      ? (template.subject?.trim() || null)
+      : null;
+
+  return {
+    id: serverId ?? null,
+    eventType,
+    customerActionTrigger,
+    templateName: template.name?.trim() || '',
+    channelType,
+    status: template.status || 'Active',
+    emailSubjectLine,
+    templateContentBody: template.content?.trim() || ''
+  };
+}
+
+function renderTemplatePreview(
+  value?: string | null,
+  options: {
+    customerName?: string;
+    customerEmail?: string;
+    orderId?: string;
+    amount?: string;
+    storeName?: string;
+    discountCode?: string;
+    discountPercent?: string;
+    storeUrl?: string;
+    checkoutLink?: string;
+    festivalName?: string;
+    holidayOffer?: string;
+  } = {}
+): string {
+  const {
+    customerName = 'Anish Grover',
+    customerEmail = 'anish.g@example.com',
+    orderId = '#SH-88710',
+    amount = '₹15,000',
+    storeName = 'TechCRM Store',
+    discountCode = 'WELCOME10',
+    discountPercent = '20%',
+    storeUrl = 'https://techcrm.myshopify.com',
+    checkoutLink = 'https://techcrm.myshopify.com/checkout',
+    festivalName = 'Diwali',
+    holidayOffer = 'Enjoy 20% off this holiday season!'
+  } = options;
+
+  return (value || '')
+    .replace(/\{\{\s*customer_name\s*\}\}/gi, customerName)
+    .replace(/\{\{\s*customer_email\s*\}\}/gi, customerEmail)
+    .replace(/\{\{\s*order_id\s*\}\}/gi, orderId)
+    .replace(/\{\{\s*amount\s*\}\}/gi, amount)
+    .replace(/\{\{\s*discount_code\s*\}\}/gi, discountCode)
+    .replace(/\{\{\s*discount_percent\s*\}\}/gi, discountPercent)
+    .replace(/\{\{\s*store_name\s*\}\}/gi, storeName)
+    .replace(/\{\{\s*store_url\s*\}\}/gi, storeUrl)
+    .replace(/\{\{\s*checkout_link\s*\}\}/gi, checkoutLink)
+    .replace(/\{\{\s*festival_name\s*\}\}/gi, festivalName)
+    .replace(/\{\{\s*holiday_offer\s*\}\}/gi, holidayOffer);
+}
+
+function normalizeTemplateText(value?: string | null): string {
+  return (value || '')
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+function getTemplateBackendId(template?: EmailTemplateApiRecord | CampaignTemplate | null): number | null {
+  if (!template) {
+    return null;
+  }
+
+  const rawId = 'serverId' in template ? template.serverId : template.id;
+  const numericId = typeof rawId === 'number' ? rawId : Number(rawId);
+
+  if (!Number.isFinite(numericId) || numericId <= 0) {
+    return null;
+  }
+
+  return numericId;
+}
+
+function isSameTemplateRecord(template: CampaignTemplate, record: EmailTemplateApiRecord): boolean {
+  return (
+    normalizeTemplateText(template.name).toLowerCase() === normalizeTemplateText(record.templateName).toLowerCase() &&
+    normalizeTemplateText(template.content) === normalizeTemplateText(record.templateContentBody) &&
+    normalizeTemplateText(template.subject) === normalizeTemplateText(record.emailSubjectLine) &&
+    normalizeTemplateText(template.eventType) === normalizeTemplateText(record.eventType) &&
+    normalizeTemplateText(template.customerActionType) === normalizeTemplateText(record.customerActionTrigger) &&
+    normalizeTemplateText(mapChannelTypeToApi(template.type)).toLowerCase() === normalizeTemplateText(record.channelType).toLowerCase() &&
+    normalizeTemplateText(template.status).toLowerCase() === normalizeTemplateText(record.status).toLowerCase()
+  );
+}
+
+const INITIAL_CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
+  {
+    id: 'TEMP-001',
+    name: 'Welcome New Customer Campaign',
+    type: 'Email',
+    status: 'Active',
+    subject: 'Welcome to TechCRM Store! Ã°Å¸Å½Â',
+    content: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team',
+    createdDate: '2026-06-10',
+    lastUpdated: '2026-07-01',
+    eventType: 'Customer Action',
+    customerActionType: 'new customer'
+  },
+  {
+    id: 'TEMP-002',
+    name: 'Order Confirmation Receipt',
+    type: 'WhatsApp',
+    status: 'Active',
+    content: 'Hello {{customer_name}}! Ã°Å¸â€ºÂÃ¯Â¸Â Your order {{order_id}} of {{amount}} is confirmed. We are preparing it for shipment. Track your delivery status directly here: https://techcrm.store/track/{{order_id}}',
+    createdDate: '2026-06-15',
+    lastUpdated: '2026-07-05',
+    eventType: 'Scheduled notification'
+  },
+  {
+    id: 'TEMP-003',
+    name: 'Cart Abandonment Alert',
+    type: 'Email',
+    status: 'Active',
+    subject: 'Did you forget something? Ã°Å¸â€ºâ€™',
+    content: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outÃ¢â‚¬â€complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care',
+    createdDate: '2026-06-20',
+    lastUpdated: '2026-07-06',
+    eventType: 'Customer Action',
+    customerActionType: 'Abounded checkout'
+  }
+];
 
 interface CampaignAutomation {
   id: string;
@@ -62,12 +327,13 @@ interface MergeTag {
 const AVAILABLE_TAGS: MergeTag[] = [
   { category: 'Customer', tag: '{{customer_name}}', description: "Inserts customer's full name" },
   { category: 'Customer', tag: '{{customer_email}}', description: "Inserts customer's email address" },
-  { category: 'Order', tag: '{{order_id}}', description: "Inserts the order ID" },
-  { category: 'Order', tag: '{{amount}}', description: "Inserts the order amount" },
-  { category: 'Discount', tag: '{{discount_code}}', description: "Inserts coupon or discount code" },
-  { category: 'Discount', tag: '{{discount_percent}}', description: "Inserts the discount percentage" },
   { category: 'Store', tag: '{{store_name}}', description: "Inserts the store name" },
   { category: 'Store', tag: '{{store_url}}', description: "Inserts the online store URL" },
+  { category: 'Store', tag: '{{checkout_link}}', description: "Inserts the checkout URL" },
+  { category: 'Discount', tag: '{{discount_code}}', description: "Inserts coupon or discount code" },
+  { category: 'Discount', tag: '{{discount_percent}}', description: "Inserts the discount percentage" },
+  { category: 'Order', tag: '{{order_id}}', description: "Inserts the order ID" },
+  { category: 'Order', tag: '{{amount}}', description: "Inserts the order amount" },
   { category: 'Festival/Occasion', tag: '{{festival_name}}', description: "Inserts festival name (e.g. Christmas, New Year)" },
   { category: 'Festival/Occasion', tag: '{{holiday_offer}}', description: "Inserts special holiday offer text" }
 ];
@@ -253,9 +519,7 @@ function getTriggerCadenceDescription(a: CampaignAutomation, templates?: Campaig
   const template = templates?.find(t => t.id === a.templateId);
   if (template && template.eventType) {
     if (template.eventType === 'Customer Action') {
-      const trigger = template.customerActionType;
-      const triggerLabel = trigger === 'new customer' ? 'New Customer' : trigger === 'Abounded checkout' ? 'Abandoned Checkout' : trigger === 'In Active customer' ? 'Inactive Customer' : trigger === 'VIP Customer' ? 'VIP Customer' : trigger || '';
-      return `On Customer Action: ${triggerLabel}`;
+      return `On Customer Action: ${formatCustomerActionTriggerLabel(template.customerActionType)}`;
     }
     if (template.eventType === 'Festival') {
       return `On Festival`;
@@ -319,14 +583,14 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [smtpSecurity, setSmtpSecurity] = useState('STARTTLS (Port 587 - Recommended)');
   const [smtpUsername, setSmtpUsername] = useState('relay@techcrm-store.com');
   const [smtpPassword, setSmtpPassword] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
-  const [senderName, setSenderName] = useState('TechCRM Store Customer Care');
+  const [senderName, setSenderName] = useState('Customer360 store');
   const [senderEmail, setSenderEmail] = useState('office@techcrm-store.com');
 
   const [waPhoneNumber, setWaPhoneNumber] = useState('+91 90000 12345');
   const [waApiVersion, setWaApiVersion] = useState('v20.0');
   const [waAppId, setWaAppId] = useState('4567812345');
   const [waAccessToken, setWaAccessToken] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
-  const [waDisplayName, setWaDisplayName] = useState('TechCRM Customer Care');
+  const [waDisplayName, setWaDisplayName] = useState('Customer360');
 
   // Toasts / Status messages for forms
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -402,7 +666,10 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   // Modal States for Templates
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<CampaignTemplate | null>(null);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
   const [templateForm, setTemplateForm] = useState<Partial<CampaignTemplate>>({
     name: '',
     type: 'Email',
@@ -555,7 +822,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
   // Pagination for templates
   const [templatePage, setTemplatePage] = useState(1);
-  const templatesPerPage = 3;
+  const templatesPerPage = 10;
 
   // Pagination for campaign scheduling & registry
   const [schedulingPage, setSchedulingPage] = useState(1);
@@ -597,15 +864,24 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
   interface RegistryCampaign {
     id: string;
+    serverId?: number | null;
     name: string;
     startDate: string;
     dispatchTime: string;
     templates: string[]; // up to 8 sequence templates
+    templateSlotIds?: Array<number | null>;
     segment: 'Abandoned Checkout' | 'Inactive Customer' | '';
-    status: 'Active' | 'Inactive' | '';
+    status: 'Active' | 'Inactive' | 'Draft' | '';
     type: 'Daily' | 'Alternative' | 'Weekly' | '';
     channelType: 'Email' | 'Whatsapp' | '';
+    campaignType?: string;
   }
+
+  type RegistryTemplateLookup = {
+    id: string;
+    name: string;
+    serverId?: number | null;
+  };
 
   const [registryCampaigns, setRegistryCampaigns] = useState<RegistryCampaign[]>([
     {
@@ -645,8 +921,15 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     channelType: ''
   });
   const [registryErrors, setRegistryErrors] = useState<Record<string, string>>({});
+  const [registryTemplateOptions, setRegistryTemplateOptions] = useState<CampaignTemplate[]>([]);
+  const [isLoadingRegistryTemplates, setIsLoadingRegistryTemplates] = useState(false);
+  const [isLoadingRegistryCampaigns, setIsLoadingRegistryCampaigns] = useState(false);
+  const [isSavingRegistryCampaign, setIsSavingRegistryCampaign] = useState(false);
 
   const [previewingTemplateObj, setPreviewingTemplateObj] = useState<{ name: string; subject: string; body: string } | null>(null);
+  const selectedRegistryTemplateIds = useMemo(() => {
+    return new Set((registryForm.templates || []).filter((templateId): templateId is string => Boolean(templateId)));
+  }, [registryForm.templates]);
 
   const sequenceTemplates = [
     { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
@@ -659,6 +942,232 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     { id: 'TEMP-001', name: 'Welcome New Customer Campaign', subject: 'Welcome to TechCRM Store! ðŸŽ', body: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team' },
     { id: 'TEMP-003', name: 'Cart Abandonment Alert', subject: 'Did you forget something? ðŸ›’', body: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' }
   ];
+
+  const formatRegistryChannelLabel = (channelType?: string): 'Email' | 'Whatsapp' | '' => {
+    if ((channelType || '').toLowerCase().includes('whatsapp')) {
+      return 'Whatsapp';
+    }
+
+    if ((channelType || '').toLowerCase().includes('email')) {
+      return 'Email';
+    }
+
+    return '';
+  };
+
+  const normalizeRegistryTemplateReference = (templateRef: number | string | null | undefined): number | string | null => {
+    if (templateRef === null || templateRef === undefined) {
+      return null;
+    }
+
+    if (typeof templateRef === 'number') {
+      return Number.isFinite(templateRef) && templateRef > 0 ? templateRef : null;
+    }
+
+    const trimmed = String(templateRef).trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^\d+$/.test(trimmed)) {
+      const numericId = Number(trimmed);
+      return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
+    }
+
+    return trimmed;
+  };
+
+  const resolveRegistryTemplateByReference = (templateRef: number | string | null | undefined): RegistryTemplateLookup | undefined => {
+    const normalizedRef = normalizeRegistryTemplateReference(templateRef);
+
+    if (normalizedRef === null) {
+      return undefined;
+    }
+
+    const numericId = typeof normalizedRef === 'number' ? normalizedRef : null;
+    const textId = String(normalizedRef).trim();
+
+    return (
+      registryTemplateOptions.find((template) => template.id === textId || (numericId !== null && template.serverId === numericId)) ||
+      templates.find((template) => template.id === textId || (numericId !== null && template.serverId === numericId)) ||
+      sequenceTemplates.find((template) => template.id === textId)
+    );
+  };
+
+  const resolveRegistryTemplateSelectionValue = (templateRef: number | string | null | undefined): string => {
+    const template = resolveRegistryTemplateByReference(templateRef);
+    return template?.id || '';
+  };
+
+  const getRegistryCampaignTemplateReferences = (campaign: RegistryCampaign): Array<number | string> => {
+    const apiSlotRefs = (campaign.templateSlotIds || [])
+      .map((templateRef) => normalizeRegistryTemplateReference(templateRef))
+      .filter((templateRef): templateRef is number => templateRef !== null && typeof templateRef === 'number');
+
+    if (apiSlotRefs.length > 0) {
+      return apiSlotRefs;
+    }
+
+    return (campaign.templates || [])
+      .map((templateRef) => normalizeRegistryTemplateReference(templateRef))
+      .filter((templateRef): templateRef is number | string => templateRef !== null);
+  };
+
+  const getRegistryCampaignTemplatePreview = (campaign: RegistryCampaign, maxVisible = 3) => {
+    const templateRefs = getRegistryCampaignTemplateReferences(campaign);
+
+    return {
+      templateRefs,
+      visibleTemplates: templateRefs.slice(0, maxVisible).map((templateRef, index) => {
+        const template = resolveRegistryTemplateByReference(templateRef);
+
+        return {
+          key: `${String(templateRef)}-${index}`,
+          index: index + 1,
+          name: template?.name || 'Unknown'
+        };
+      }),
+      remainingCount: Math.max(0, templateRefs.length - maxVisible)
+    };
+  };
+
+  const mapCampaignAutomationApiRecordToRegistryCampaign = (
+    record: CampaignAutomationApiRecord,
+    index: number
+  ): RegistryCampaign => {
+    const serverId = typeof record.id === 'number' && Number.isFinite(record.id) ? record.id : null;
+    const templateSlotIds = [
+      record.templateSlot1 ?? null,
+      record.templateSlot2 ?? null,
+      record.templateSlot3 ?? null,
+      record.templateSlot4 ?? null,
+      record.templateSlot5 ?? null,
+      record.templateSlot6 ?? null,
+      record.templateSlot7 ?? null,
+      record.templateSlot8 ?? null
+    ].map((templateRef) => {
+      const normalizedRef = normalizeRegistryTemplateReference(templateRef);
+      return typeof normalizedRef === 'number' ? normalizedRef : null;
+    });
+
+    const displayId = serverId !== null
+      ? `AC-${String(serverId).padStart(3, '0')}`
+      : `AC-${String(index + 1).padStart(3, '0')}`;
+
+    return {
+      id: displayId,
+      serverId,
+      name: record.campaignName?.trim() || 'Untitled Campaign',
+      startDate: formatDateOnly(record.campaignStartDate) || '',
+      dispatchTime: (record.dispatchTime || '').slice(0, 5),
+      templates: templateSlotIds
+        .map((templateSlotId) => resolveRegistryTemplateSelectionValue(templateSlotId))
+        .filter((value): value is string => Boolean(value)),
+      templateSlotIds,
+      segment: (record.customerSegmentTrigger as RegistryCampaign['segment']) || '',
+      status: record.initialStatus?.trim() === 'Inactive'
+        ? 'Inactive'
+        : record.initialStatus?.trim() === 'Draft'
+          ? 'Draft'
+          : 'Active',
+      type: '',
+      channelType: formatRegistryChannelLabel(record.channelType) || 'Email',
+      campaignType: record.campaignType?.trim() || 'Automation'
+    };
+  };
+
+  const loadRegistryTemplates = async (
+    channelType: RegistryCampaign['channelType'],
+    signal?: AbortSignal
+  ) => {
+    const apiChannelType = mapRegistryChannelTypeToApi(channelType);
+
+    if (!apiChannelType) {
+      setRegistryTemplateOptions([]);
+      return;
+    }
+
+    setIsLoadingRegistryTemplates(true);
+
+    try {
+      const apiTemplates = await fetchEmailTemplatesByChannelType(apiChannelType, { signal });
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      setRegistryTemplateOptions(apiTemplates.map((template, index) => mapEmailTemplateToCampaignTemplate(template, index)));
+    } catch {
+      if (!signal?.aborted) {
+        setRegistryTemplateOptions([]);
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingRegistryTemplates(false);
+      }
+    }
+  };
+
+  const loadRegistryCampaigns = async (signal?: AbortSignal) => {
+    setIsLoadingRegistryCampaigns(true);
+
+    try {
+      const apiCampaigns = await fetchCampaignAutomationsByShopDomain({ signal });
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      setRegistryCampaigns(apiCampaigns.map((record, index) => mapCampaignAutomationApiRecordToRegistryCampaign(record, index)));
+      setRegistryPage(1);
+    } catch {
+      if (!signal?.aborted) {
+        // Keep the seeded registry rows visible if the backend is unavailable.
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingRegistryCampaigns(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadRegistryCampaigns(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isRegistryModalOpen) {
+      setRegistryTemplateOptions([]);
+      setIsLoadingRegistryTemplates(false);
+      return;
+    }
+
+    if (!registryForm.channelType) {
+      setRegistryTemplateOptions([]);
+      setIsLoadingRegistryTemplates(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadRegistryTemplates(registryForm.channelType as RegistryCampaign['channelType'], controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [isRegistryModalOpen, registryForm.channelType]);
+
+  const getRegistryTemplateOptionsForSlot = (slotIdx: number) => {
+    const currentTemplateId = (registryForm.templates || [])[slotIdx] || '';
+
+    return registryTemplateOptions.filter((template) => {
+      return template.id === currentTemplateId || !selectedRegistryTemplateIds.has(template.id);
+    });
+  };
 
   // --- Handlers for Email/WhatsApp Settings ---
   const handleTestConnection = () => {
@@ -783,6 +1292,32 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     };
   }, []);
 
+  const loadEmailTemplates = async (signal?: AbortSignal) => {
+    try {
+      const apiTemplates = await fetchEmailTemplates({ signal });
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      setTemplates(apiTemplates.map((template, index) => mapEmailTemplateToCampaignTemplate(template, index)));
+    } catch {
+      if (!signal?.aborted) {
+        // Keep the seeded templates visible if the backend is unavailable.
+        // The save flow still talks to the live API when the user submits changes.
+      }
+    }
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadEmailTemplates(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
   // --- Handlers for Templates ---
   const filteredTemplates = useMemo(() => {
     return templates.filter(t => {
@@ -831,7 +1366,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const handleOpenTemplateModal = (template?: CampaignTemplate) => {
     if (template) {
       setSelectedTemplate(template);
-      setTemplateForm({ ...template });
+      setTemplateForm({ ...template, serverId: template.serverId ?? null });
     } else {
       setSelectedTemplate(null);
       const nextNum = templates.length > 0 
@@ -849,21 +1384,33 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
         subject: '',
         content: '',
         eventType: undefined,
-        customerActionType: undefined
+        customerActionType: undefined,
+        serverId: null
       });
     }
     setIsTemplateModalOpen(true);
   };
 
-  const handleSaveTemplate = (e: React.FormEvent) => {
+  const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!templateForm.id || !templateForm.name || !templateForm.content || !templateForm.eventType) {
+    const templateName = templateForm.name?.trim() || '';
+    const templateBody = templateForm.content?.trim() || '';
+    const templateSubject = templateForm.subject?.trim() || '';
+    const templateType = templateForm.type || 'Email';
+    const channelType = mapChannelTypeToApi(templateType as CampaignTemplate['type']);
+
+    if (!templateForm.id || !templateName || !templateBody || !templateForm.eventType) {
       showToast('Please fill out all required fields.', 'error');
       return;
     }
 
     if (templateForm.eventType === 'Customer Action' && !templateForm.customerActionType) {
       showToast('Please select a customer action trigger.', 'error');
+      return;
+    }
+
+    if (channelType === 'Email Outbound' && !templateSubject) {
+      showToast('Please enter an email subject line.', 'error');
       return;
     }
 
@@ -874,53 +1421,109 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       return;
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    if (selectedTemplate) {
-      // Edit
-      setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? {
-        ...t,
+    setIsSavingTemplate(true);
+    const payload = buildEmailTemplateSaveRequest(
+      {
+        ...templateForm,
         id: templateId,
-        name: templateForm.name!,
-        type: templateForm.type!,
-        status: templateForm.status!,
-        subject: templateForm.type === 'Email' ? templateForm.subject : undefined,
-        content: templateForm.content!,
-        eventType: templateForm.eventType,
-        customerActionType: templateForm.eventType === 'Customer Action' ? templateForm.customerActionType : undefined,
-        lastUpdated: todayStr
-      } as CampaignTemplate : t));
+        name: templateName,
+        type: templateType,
+        subject: channelType === 'Email Outbound' ? templateSubject : '',
+        content: templateBody
+      },
+      selectedTemplate?.serverId ?? null
+    );
 
-      // Update referencing automations if template ID changed
-      if (selectedTemplate.id !== templateId) {
-        setAutomations(prev => prev.map(a => a.templateId === selectedTemplate.id ? { ...a, templateId } : a));
-      }
-      showToast('Template updated successfully!', 'success');
-    } else {
-      // Create
-      const newTemplate: CampaignTemplate = {
-        id: templateId,
-        name: templateForm.name!,
-        type: templateForm.type!,
-        status: templateForm.status!,
-        subject: templateForm.type === 'Email' ? templateForm.subject : undefined,
-        content: templateForm.content!,
-        eventType: templateForm.eventType,
-        customerActionType: templateForm.eventType === 'Customer Action' ? templateForm.customerActionType : undefined,
-        createdDate: todayStr,
-        lastUpdated: todayStr
+    try {
+      const savedRecord = await saveEmailTemplate(payload);
+      const now = new Date().toISOString().split('T')[0];
+      const savedServerId = typeof savedRecord.id === 'number' && Number.isFinite(savedRecord.id) ? savedRecord.id : (selectedTemplate?.serverId ?? null);
+      const updatedTemplate: CampaignTemplate = {
+        id: selectedTemplate?.id || templateId,
+        serverId: savedServerId,
+        name: savedRecord.templateName?.trim() || templateName,
+        type: mapApiChannelType(savedRecord.channelType || payload.channelType),
+        status: (savedRecord.status || payload.status).trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active',
+        subject: mapApiChannelType(savedRecord.channelType || payload.channelType) === 'Email'
+          ? (savedRecord.emailSubjectLine?.trim() || templateSubject)
+          : '',
+        content: savedRecord.templateContentBody?.trim() || templateBody,
+        createdDate: selectedTemplate?.createdDate || formatDateOnly(savedRecord.createdAt) || now,
+        lastUpdated: formatDateOnly(savedRecord.updatedAt || savedRecord.createdAt) || now,
+        eventType: (savedRecord.eventType || payload.eventType) as CampaignTemplate['eventType'],
+        customerActionType: payload.eventType === 'Customer Action'
+          ? (mapApiCustomerActionTrigger(savedRecord.customerActionTrigger || payload.customerActionTrigger) || templateForm.customerActionType)
+          : undefined
       };
-      setTemplates(prev => [...prev, newTemplate]);
-      showToast('Campaign template created successfully!', 'success');
-    }
 
-    setIsTemplateModalOpen(false);
+      setTemplates((prev) => {
+        if (selectedTemplate) {
+          return prev.map((template) => template.id === selectedTemplate.id ? updatedTemplate : template);
+        }
+
+        return [...prev, updatedTemplate];
+      });
+
+      setIsTemplateModalOpen(false);
+      setSelectedTemplate(null);
+      showToast('Template saved successfully.', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save template.';
+      showToast(message, 'error');
+    } finally {
+      setIsSavingTemplate(false);
+    }
   };
 
-  const handleDeleteTemplate = (id: string) => {
-    if (confirm('Are you sure you want to delete this template? Any scheduled automations using this template will be affected.')) {
-      setTemplates(prev => prev.filter(t => t.id !== id));
-      showToast('Template deleted.', 'info');
+  const handleDeleteTemplate = (template: CampaignTemplate) => {
+    setTemplateToDelete(template);
+  };
+
+  const handleConfirmDeleteTemplate = async () => {
+    if (!templateToDelete) {
+      return;
+    }
+
+    const resolveDeleteId = async (): Promise<number | null> => {
+      const currentId = getTemplateBackendId(templateToDelete);
+      if (currentId) {
+        return currentId;
+      }
+
+      try {
+        const apiTemplates = await fetchEmailTemplates();
+        const matchedTemplate = apiTemplates.find((record) => isSameTemplateRecord(templateToDelete, record));
+        return getTemplateBackendId(matchedTemplate);
+      } catch {
+        return null;
+      }
+    };
+
+    const deleteId = await resolveDeleteId();
+
+    if (!deleteId) {
+      showToast('This template does not have a backend id yet, so it cannot be deleted from the server.', 'error');
+      return;
+    }
+
+    setIsDeletingTemplate(true);
+
+    try {
+      await deleteEmailTemplate(deleteId);
+      setTemplates((prev) => prev.filter((template) => template.serverId !== deleteId));
+      setTemplateToDelete(null);
+      if (selectedTemplate?.serverId === deleteId) {
+        setIsPreviewModalOpen(false);
+      }
+      if (selectedTemplate?.serverId === deleteId) {
+        setSelectedTemplate(null);
+      }
+      showToast('Email template deleted successfully.', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete template.';
+      showToast(message, 'error');
+    } finally {
+      setIsDeletingTemplate(false);
     }
   };
 
@@ -1139,17 +1742,19 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     }
   };
 
-  const getSlotDateLabel = (slotIdx: number) => {
+  const getRegistrySlotDateValue = (slotIdx: number): string | null => {
     const dateStr = registryForm.startDate || getTodayDateString();
-    if (!dateStr) return '';
+    if (!dateStr || !registryForm.type) return null;
+
     const parts = dateStr.split('-');
-    if (parts.length !== 3) return '';
+    if (parts.length !== 3) return null;
+
     const year = parseInt(parts[0], 10);
     const month = parseInt(parts[1], 10) - 1;
     const day = parseInt(parts[2], 10);
-    
     const targetDate = new Date(year, month, day);
-    if (isNaN(targetDate.getTime())) return '';
+
+    if (Number.isNaN(targetDate.getTime())) return null;
 
     let multiplier = 0;
     if (registryForm.type === 'Daily') {
@@ -1159,11 +1764,24 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     } else if (registryForm.type === 'Weekly') {
       multiplier = 7;
     } else {
-      return '';
+      return null;
     }
 
-    const offsetDays = slotIdx * multiplier;
+    const offsetDays = (slotIdx + 1) * multiplier;
     targetDate.setDate(targetDate.getDate() + offsetDays);
+
+    const yyyy = targetDate.getFullYear();
+    const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(targetDate.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}T00:00:00`;
+  };
+
+  const getSlotDateLabel = (slotIdx: number) => {
+    const slotDateValue = getRegistrySlotDateValue(slotIdx);
+    if (!slotDateValue) return '';
+
+    const targetDate = new Date(slotDateValue);
+    if (Number.isNaN(targetDate.getTime())) return '';
 
     const dd = String(targetDate.getDate()).padStart(2, '0');
     const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
@@ -1175,12 +1793,16 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const handleOpenRegistryModal = (campaign?: RegistryCampaign) => {
     setRegistryErrors({});
     if (campaign) {
+      const resolvedTemplateSelections = getRegistryCampaignTemplateReferences(campaign)
+        .map((templateRef) => resolveRegistryTemplateSelectionValue(templateRef))
+        .slice(0, 8);
+
       setSelectedRegistryCampaign(campaign);
       setRegistryForm({
         name: campaign.name,
         startDate: campaign.startDate,
         dispatchTime: campaign.dispatchTime,
-        templates: [...campaign.templates, ...Array(8).fill('')].slice(0, 8),
+        templates: [...resolvedTemplateSelections, ...Array(8).fill('')].slice(0, 8),
         segment: campaign.segment,
         status: campaign.status,
         type: campaign.type || 'Daily',
@@ -1202,9 +1824,9 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
     setIsRegistryModalOpen(true);
   };
 
-  const handleSaveRegistryCampaign = (e: React.FormEvent) => {
+  const handleSaveRegistryCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const errors: Record<string, string> = {};
     if (!registryForm.name || !registryForm.name.trim()) {
       errors.name = 'Campaign Name is required';
@@ -1234,38 +1856,123 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       return;
     }
 
-    setRegistryErrors({});
-    const cleanedTemplates = (registryForm.templates || []).filter(id => id !== '');
-
-    if (selectedRegistryCampaign) {
-      setRegistryCampaigns(prev => prev.map(c => c.id === selectedRegistryCampaign.id ? {
-        ...c,
-        name: registryForm.name!,
-        startDate: registryForm.startDate!,
-        dispatchTime: registryForm.dispatchTime!,
-        templates: cleanedTemplates,
-        segment: registryForm.segment! as any,
-        status: registryForm.status! as any,
-        type: registryForm.type! as any,
-        channelType: registryForm.channelType! as any
-      } : c));
-      showToast(`Campaign "${registryForm.name}" updated successfully.`, 'success');
-    } else {
-      const newCampaign: RegistryCampaign = {
-        id: 'AC-' + (200 + registryCampaigns.length + 1),
-        name: registryForm.name!,
-        startDate: registryForm.startDate!,
-        dispatchTime: registryForm.dispatchTime!,
-        templates: cleanedTemplates,
-        segment: registryForm.segment! as any,
-        status: registryForm.status! as any,
-        type: registryForm.type! as any,
-        channelType: registryForm.channelType! as any
-      };
-      setRegistryCampaigns(prev => [...prev, newCampaign]);
-      showToast(`Campaign "${registryForm.name}" created successfully.`, 'success');
+    if (isSavingRegistryCampaign) {
+      return;
     }
-    setIsRegistryModalOpen(false);
+
+    const nextRegistryId = selectedRegistryCampaign?.id || `AC-${String(registryCampaigns.length + 1).padStart(3, '0')}`;
+    const campaignName = registryForm.name?.trim() || '';
+    const campaignStartDate = registryForm.startDate || '';
+    const dispatchTime = registryForm.dispatchTime || '';
+    const selectedType = registryForm.type as RegistryCampaign['type'];
+    const selectedStatus = registryForm.status as RegistryCampaign['status'];
+    const selectedSegment = registryForm.segment as RegistryCampaign['segment'];
+    const selectedChannelType = registryForm.channelType as RegistryCampaign['channelType'];
+
+    setRegistryErrors({});
+    setIsSavingRegistryCampaign(true);
+
+    try {
+      const selectedTemplateIds = (registryForm.templates || []).map((templateId) => templateId || '');
+      const resolveTemplateServerId = (templateId: string): number | null => {
+        if (!templateId) {
+          return null;
+        }
+
+        const matchedTemplate =
+          registryTemplateOptions.find((template) => template.id === templateId) ||
+          templates.find((template) => template.id === templateId);
+        return getTemplateBackendId(matchedTemplate);
+      };
+
+      const buildSlotPayload = (slotIdx: number): { templateId: number | null; templateDate: string | null } => {
+        const selectedTemplateId = selectedTemplateIds[slotIdx];
+        if (!selectedTemplateId) {
+          return { templateId: null, templateDate: null };
+        }
+
+        const serverId = resolveTemplateServerId(selectedTemplateId);
+        if (!serverId) {
+          throw new Error(`Template selected for Slot ${slotIdx + 1} does not have a backend id yet.`);
+        }
+
+        const slotDate = getRegistrySlotDateValue(slotIdx);
+        if (!slotDate) {
+          throw new Error(`Unable to resolve the date for Slot ${slotIdx + 1}.`);
+        }
+
+        return {
+          templateId: serverId,
+          templateDate: slotDate
+        };
+      };
+
+      const slotPayloads = Array.from({ length: 8 }, (_, slotIdx) => buildSlotPayload(slotIdx));
+      const requestPayload: CampaignAutomationSaveRequest = {
+        id: selectedRegistryCampaign?.serverId ?? null,
+        campaignName,
+        campaignStartDate: `${campaignStartDate}T00:00:00`,
+        dispatchTime: dispatchTime.trim().length === 5 ? `${dispatchTime}:00` : dispatchTime,
+        customerSegmentTrigger: selectedSegment,
+        initialStatus: selectedStatus,
+        operation: 'Send',
+        campaignType: 'Automation',
+        channelType: mapRegistryChannelTypeToApi(selectedChannelType),
+        templateSlot1: slotPayloads[0].templateId,
+        templateSlot1Date: slotPayloads[0].templateDate,
+        templateSlot2: slotPayloads[1].templateId,
+        templateSlot2Date: slotPayloads[1].templateDate,
+        templateSlot3: slotPayloads[2].templateId,
+        templateSlot3Date: slotPayloads[2].templateDate,
+        templateSlot4: slotPayloads[3].templateId,
+        templateSlot4Date: slotPayloads[3].templateDate,
+        templateSlot5: slotPayloads[4].templateId,
+        templateSlot5Date: slotPayloads[4].templateDate,
+        templateSlot6: slotPayloads[5].templateId,
+        templateSlot6Date: slotPayloads[5].templateDate,
+        templateSlot7: slotPayloads[6].templateId,
+        templateSlot7Date: slotPayloads[6].templateDate,
+        templateSlot8: slotPayloads[7].templateId,
+        templateSlot8Date: slotPayloads[7].templateDate
+      };
+
+      const savedRecord = await saveCampaignAutomation(requestPayload);
+      const savedServerId = typeof savedRecord.id === 'number' && Number.isFinite(savedRecord.id)
+        ? savedRecord.id
+        : (selectedRegistryCampaign?.serverId ?? null);
+
+      const updatedCampaign: RegistryCampaign = {
+        id: nextRegistryId,
+        serverId: savedServerId,
+        name: savedRecord.campaignName?.trim() || campaignName,
+        startDate: formatDateOnly(savedRecord.campaignStartDate) || campaignStartDate,
+        dispatchTime: (savedRecord.dispatchTime || dispatchTime || '').slice(0, 5),
+        templates: selectedTemplateIds.filter(Boolean),
+        templateSlotIds: slotPayloads.map((slot) => slot.templateId),
+        segment: (savedRecord.customerSegmentTrigger as RegistryCampaign['segment']) || selectedSegment,
+        status: (savedRecord.initialStatus as RegistryCampaign['status']) || selectedStatus,
+        type: selectedType || 'Daily',
+        channelType: formatRegistryChannelLabel(savedRecord.channelType) || selectedChannelType || 'Email',
+        campaignType: savedRecord.campaignType?.trim() || 'Automation'
+      };
+
+      setRegistryCampaigns((prev) => {
+        if (selectedRegistryCampaign) {
+          return prev.map((campaign) => campaign.id === selectedRegistryCampaign.id ? updatedCampaign : campaign);
+        }
+
+        return [...prev, updatedCampaign];
+      });
+
+      setIsRegistryModalOpen(false);
+      setSelectedRegistryCampaign(null);
+      showToast(savedRecord.id ? 'Campaign automation saved successfully.' : `Campaign "${registryForm.name}" saved successfully.`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save campaign automation.';
+      showToast(message, 'error');
+    } finally {
+      setIsSavingRegistryCampaign(false);
+    }
   };
 
   const handleDeleteRegistryCampaign = (id: string) => {
@@ -1927,69 +2634,48 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
         <div className="overflow-x-auto border border-border-subtle rounded-xl bg-white shadow-xs">
           <table className="w-full min-w-[1100px] text-left border-collapse table-fixed">
             <colgroup>
-              <col className="w-[37%]" />
-              <col className="w-[14%]" />
+              <col className="w-[28%]" />
+              <col className="w-[16%]" />
               <col className="w-[12%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
-              <col className="w-[11%]" />
+              <col className="w-[14%]" />
+              <col className="w-[14%]" />
+              <col className="w-[16%]" />
             </colgroup>
             <thead>
               <tr className="bg-[#B9D7FC] text-slate-900 text-[13px] font-bold border-b border-border-subtle">
-                <th className="px-5 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Template Name</th>
-                <th className="px-5 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Template Type</th>
-                <th className="px-5 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Status</th>
-                <th className="px-5 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Created Date</th>
-                <th className="px-5 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Last Updated</th>
-                <th className="px-5 py-3 uppercase tracking-wider text-slate-900 text-[12px] font-bold text-right">Actions</th>
+                <th className="px-4 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Template Name</th>
+                <th className="px-4 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Template Type</th>
+                <th className="px-4 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Status</th>
+                <th className="px-4 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Created Date</th>
+                <th className="px-4 py-3 border-r border-border-subtle uppercase tracking-wider text-slate-900 text-[12px] font-bold">Last Updated</th>
+                <th className="px-4 py-3 uppercase tracking-wider text-slate-900 text-[12px] font-bold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white">
               {filteredTemplates.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
+                  <td colSpan={6} className="px-4 py-12 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
                     No campaign templates found matching the filtered parameters.
                   </td>
                 </tr>
               ) : (
                 paginatedTemplates.map(t => (
                   <tr key={t.id} className="hover:bg-slate-50 transition-colors text-[13.5px]">
-                    <td className="px-5 py-4 border-r border-b border-gray-200 align-middle">
-                      <div className="font-extrabold text-[13.5px] text-text-primary group-hover:text-brand-primary transition-colors">{t.name}</div>
-                      <div className="text-[10px] font-bold text-gray-500 mt-1 flex flex-wrap gap-2 items-center">
-                        <span>ID: {t.id}</span>
-                        {t.subject && (
-                          <>
-                            <span>â€¢</span>
-                            <span className="truncate max-w-xs">Subject: {t.subject}</span>
-                          </>
-                        )}
-                        {t.eventType && (
-                          <>
-                            <span>â€¢</span>
-                            <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">Event: {t.eventType}</span>
-                          </>
-                        )}
-                        {t.customerActionType && (
-                          <>
-                            <span>â€¢</span>
-                            <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">Trigger: {t.customerActionType === 'new customer' ? 'New Customer' : t.customerActionType === 'Abounded checkout' ? 'Abandoned Checkout' : t.customerActionType === 'In Active customer' ? 'Inactive Customer' : t.customerActionType}</span>
-                          </>
-                        )}
-                      </div>
+                    <td className="px-4 py-1.5 border-r border-b border-gray-200 align-middle">
+                      <div className="font-extrabold text-[13px] leading-tight text-text-primary group-hover:text-brand-primary transition-colors truncate">{t.name}</div>
                     </td>
-                    <td className="px-5 py-4 border-r border-b border-gray-200 align-middle">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold border shadow-xxs ${
+                    <td className="px-4 py-1.5 border-r border-b border-gray-200 align-middle">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-extrabold border shadow-xxs ${
                         t.type === 'Email' 
                           ? 'bg-brand-bg-active border-brand-primary/30 text-brand-primary' 
                           : 'bg-emerald-50 border-emerald-100 text-emerald-600'
                       }`}>
-                        {t.type === 'Email' ? <Mail className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />}
+                        {t.type === 'Email' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
                         {t.type.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-5 py-4 border-r border-b border-gray-200 align-middle">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold shadow-xxs border ${
+                    <td className="px-4 py-1.5 border-r border-b border-gray-200 align-middle">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-extrabold shadow-xxs border ${
                         t.status === 'Active' 
                           ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
                           : 'bg-slate-50 border-slate-200 text-slate-500'
@@ -1998,33 +2684,33 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                         {t.status}
                       </span>
                     </td>
-                    <td className="px-5 py-4 border-r border-b border-gray-200 align-middle font-mono font-semibold text-gray-600 text-[11.5px]">{t.createdDate}</td>
-                    <td className="px-5 py-4 border-r border-b border-gray-200 align-middle font-mono font-semibold text-gray-600 text-[11.5px]">{t.lastUpdated}</td>
-                    <td className="px-5 py-4 border-b border-gray-200 align-middle text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="px-4 py-1.5 border-r border-b border-gray-200 align-middle font-mono font-semibold text-gray-600 text-[11px]">{t.createdDate}</td>
+                    <td className="px-4 py-1.5 border-r border-b border-gray-200 align-middle font-mono font-semibold text-gray-600 text-[11px]">{t.lastUpdated}</td>
+                    <td className="px-4 py-1.5 border-b border-gray-200 align-middle text-right">
+                      <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => handlePreviewTemplate(t)}
-                          className="p-2 hover:bg-brand-bg-active hover:text-brand-primary rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-brand-primary/20"
+                          className="p-1.5 hover:bg-brand-bg-active hover:text-brand-primary rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-brand-primary/20"
                           title="Preview template"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
                           onClick={() => handleOpenTemplateModal(t)}
-                          className="p-2 hover:bg-amber-50 hover:text-amber-600 rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-amber-200"
+                          className="p-1.5 hover:bg-amber-50 hover:text-amber-600 rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-amber-200"
                           title="Edit template"
                         >
-                          <Pencil className="w-4 h-4" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteTemplate(t.id)}
-                          className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-rose-200"
+                          onClick={() => handleDeleteTemplate(t)}
+                          className="p-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-rose-200"
                           title="Delete template"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -2459,19 +3145,25 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
           {/* Grid Table Card */}
           <div className="hidden md:block overflow-x-auto border border-border-subtle rounded-xl bg-white shadow-xs">
-            <table className="w-full text-left border-collapse table-auto md:text-[13px] lg:text-[13.5px] min-w-[1100px]">
+            <table className="w-full text-left border-collapse table-fixed md:text-[13px] lg:text-[13.5px] min-w-[980px] xl:min-w-full">
               <thead>
                 <tr className="bg-[#B9D7FC] text-slate-900 border-b border-border-subtle font-bold">
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[200px]">Campaign Name</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[120px]">Start Date</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[320px]">Ongoing Template Set</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[160px]">Type / Segment</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-center min-w-[110px]">Status</th>
-                  <th className="px-3 lg:px-4 py-2.5 uppercase tracking-wider text-slate-900 text-[11px] lg:text-[12px] font-extrabold text-right min-w-[140px]">Actions</th>
+                  <th className="w-[22%] px-3 lg:px-4 py-2 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left">Campaign Name</th>
+                  <th className="w-[11%] px-3 lg:px-4 py-2 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left">Start Date</th>
+                  <th className="w-[31%] px-3 lg:px-4 py-2 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left">Ongoing Template Set</th>
+                  <th className="w-[20%] px-3 lg:px-4 py-2 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left">Type / Segment</th>
+                  <th className="w-[7%] px-3 lg:px-4 py-2 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-center">Status</th>
+                  <th className="w-[9%] px-3 lg:px-4 py-2 uppercase tracking-wider text-slate-900 text-[11px] lg:text-[12px] font-extrabold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white">
-                {registryCampaigns.length === 0 ? (
+                {isLoadingRegistryCampaigns ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
+                      Loading campaigns...
+                    </td>
+                  </tr>
+                ) : registryCampaigns.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-10 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
                       No campaigns registered. Click "+ Automation Campaign" to start!
@@ -2480,35 +3172,57 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 ) : (
                   paginatedRegistryCampaigns.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle">
+                      <td className="px-3 lg:px-4 py-2 border-r border-b border-gray-200 align-middle">
                         <div className="font-extrabold text-[12.5px] lg:text-[13px] text-text-primary leading-tight break-words">
                           {c.name}
                         </div>
                       </td>
-                      <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle">
+                      <td className="px-3 lg:px-4 py-2 border-r border-b border-gray-200 align-middle">
                         <span className="text-[10px] lg:text-[10.5px] font-semibold text-gray-500">
                           {c.startDate}
                         </span>
                       </td>
-                      <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle">
-                        <div className="flex flex-wrap gap-1.5 max-w-sm">
-                          {c.templates.map((tid, idx) => {
-                            const temp = sequenceTemplates.find(t => t.id === tid);
+                      <td className="px-3 lg:px-4 py-2 border-r border-b border-gray-200 align-middle">
+                        <div className="flex flex-wrap gap-1.5 max-w-full">
+                          {(() => {
+                            const { templateRefs, visibleTemplates, remainingCount } = getRegistryCampaignTemplatePreview(c, 3);
+
+                            if (templateRefs.length === 0) {
+                              return <span className="text-[11px] text-text-secondary italic">None Selected</span>;
+                            }
+
                             return (
-                              <span key={tid + idx} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-extrabold border bg-slate-50 border-gray-200 text-slate-700 shadow-xxs">
-                                {idx + 1}: {temp ? temp.name : 'Unknown'}
-                              </span>
+                              <>
+                                {visibleTemplates.map((template) => (
+                                  <span
+                                    key={template.key}
+                                    title={template.name}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border bg-slate-50 border-gray-200 text-slate-700 shadow-xxs leading-tight max-w-full"
+                                  >
+                                    {template.index}: {template.name}
+                                  </span>
+                                ))}
+                                {remainingCount > 0 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold border bg-white border-dashed border-gray-300 text-gray-500 shadow-xxs">
+                                    +{remainingCount} more
+                                  </span>
+                                )}
+                              </>
                             );
-                          })}
-                          {c.templates.length === 0 && <span className="text-[11px] text-text-secondary italic">None Selected</span>}
+                          })()}
                         </div>
                       </td>
-                      <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle">
-                        <div className="flex flex-col gap-1 items-start">
+                      <td className="px-3 lg:px-4 py-2 border-r border-b border-gray-200 align-middle">
+                        <div className="flex flex-col gap-1 items-start max-w-full">
                           <div className="flex flex-wrap gap-1">
                             {c.type && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-blue-50 border-blue-100 text-blue-700">
                                 {c.type}
+                              </span>
+                            )}
+                            {c.campaignType && c.campaignType !== c.type && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-violet-50 border-violet-100 text-violet-700">
+                                {c.campaignType}
                               </span>
                             )}
                             {c.channelType && (
@@ -2524,19 +3238,27 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                           )}
                         </div>
                       </td>
-                      <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle text-center">
+                      <td className="px-3 lg:px-4 py-2 border-r border-b border-gray-200 align-middle text-center">
                         <div className="flex items-center justify-center">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] lg:text-[11px] font-extrabold shadow-xxs border ${
                             c.status === 'Active' 
                               ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' 
-                              : 'bg-rose-50 border border-rose-100 text-rose-700'
+                              : c.status === 'Draft'
+                                ? 'bg-slate-50 border border-slate-200 text-slate-600'
+                                : 'bg-rose-50 border border-rose-100 text-rose-700'
                           }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${c.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                            {c.status.toUpperCase()}
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              c.status === 'Active'
+                                ? 'bg-emerald-500'
+                                : c.status === 'Draft'
+                                  ? 'bg-slate-500'
+                                  : 'bg-rose-500'
+                            }`}></span>
+                            {(c.status || 'Inactive').toUpperCase()}
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 lg:px-4 py-3 border-b border-gray-200 align-middle text-right">
+                      <td className="px-3 lg:px-4 py-2 border-b border-gray-200 align-middle text-right">
                         <div className="flex items-center justify-end gap-2 lg:gap-3">
                           <div className="flex items-center gap-1.5 lg:gap-2">
                             <button
@@ -2580,6 +3302,147 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="block md:hidden space-y-4">
+            {isLoadingRegistryCampaigns ? (
+              <div className="p-8 text-center text-text-secondary font-bold text-[13px] border border-gray-200 rounded-xl bg-white shadow-xs">
+                Loading campaigns...
+              </div>
+            ) : registryCampaigns.length === 0 ? (
+              <div className="p-8 text-center text-text-secondary font-bold text-[13px] border border-gray-200 rounded-xl bg-white shadow-xs">
+                No campaigns registered. Click "+ Automation Campaign" to start!
+              </div>
+            ) : (
+              paginatedRegistryCampaigns.map((c) => {
+                const { templateRefs, visibleTemplates, remainingCount } = getRegistryCampaignTemplatePreview(c, 2);
+
+                return (
+                  <div key={c.id} className="p-4 border border-gray-200 rounded-xl bg-white shadow-xs space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-[14px] text-text-primary leading-snug break-words">
+                          {c.name}
+                        </div>
+                        <div className="mt-1 text-[11px] font-semibold text-gray-500">
+                          Start: {c.startDate || 'N/A'}
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold shadow-xxs border shrink-0 ${
+                        c.status === 'Active'
+                          ? 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                          : c.status === 'Draft'
+                            ? 'bg-slate-50 border border-slate-200 text-slate-600'
+                            : 'bg-rose-50 border border-rose-100 text-rose-700'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          c.status === 'Active'
+                            ? 'bg-emerald-500'
+                            : c.status === 'Draft'
+                              ? 'bg-slate-500'
+                              : 'bg-rose-500'
+                        }`} />
+                        {(c.status || 'Inactive').toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 text-[12px]">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Ongoing Template Set</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {templateRefs.length === 0 ? (
+                            <span className="text-[11px] text-text-secondary italic">None Selected</span>
+                          ) : (
+                            <>
+                              {visibleTemplates.map((template) => (
+                                <span
+                                  key={template.key}
+                                  title={template.name}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border bg-slate-50 border-gray-200 text-slate-700 shadow-xxs leading-tight"
+                                >
+                                  {template.index}: {template.name}
+                                </span>
+                              ))}
+                              {remainingCount > 0 && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold border bg-white border-dashed border-gray-300 text-gray-500 shadow-xxs">
+                                  +{remainingCount} more
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Type / Segment</span>
+                        <div className="flex flex-wrap gap-1">
+                          {c.type && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-blue-50 border-blue-100 text-blue-700">
+                              {c.type}
+                            </span>
+                          )}
+                          {c.campaignType && c.campaignType !== c.type && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-violet-50 border-violet-100 text-violet-700">
+                              {c.campaignType}
+                            </span>
+                          )}
+                          {c.channelType && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-indigo-50 border-indigo-100 text-indigo-700">
+                              {c.channelType}
+                            </span>
+                          )}
+                        </div>
+                        {c.segment && (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border shadow-xxs bg-gray-50 border-gray-200 text-slate-600 w-fit">
+                            {c.segment}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-100">
+                      <div className="text-[11px] font-semibold text-gray-500">
+                        Templates: {templateRefs.length}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRegistryStatus(c.id)}
+                          className={`p-1.5 rounded-lg transition-all cursor-pointer border shadow-xxs flex items-center justify-center shrink-0 ${
+                            c.status === 'Active'
+                              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                          }`}
+                          title={c.status === 'Active' ? 'DEACTIVATE' : 'ACTIVATE'}
+                        >
+                          {c.status === 'Active' ? (
+                            <Pause className="w-3.5 h-3.5" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenRegistryModal(c)}
+                          className="p-1.5 hover:bg-amber-50 hover:text-amber-600 rounded-lg text-text-secondary transition-all cursor-pointer border border-transparent hover:border-amber-200 flex items-center justify-center shrink-0"
+                          title="Edit Campaign"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRegistryCampaign(c.id)}
+                          className="p-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-text-secondary transition-all cursor-pointer border border-transparent hover:border-rose-200 flex items-center justify-center shrink-0"
+                          title="Delete Campaign"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
 
           {/* Table Pagination for Campaign Registry */}
@@ -2716,11 +3579,11 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
               {templateForm.type === 'Email' && (
                 <div className="animate-in fade-in duration-200">
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Email Subject Line *</label>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Email Subject *</label>
                   <input 
                     type="text"
                     required={templateForm.type === 'Email'}
-                    placeholder="e.g. Welcome to our CRM Store! ðŸŽ"
+                    placeholder="e.g. Welcome to our store"
                     value={templateForm.subject || ''}
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
                     className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
@@ -2817,9 +3680,10 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold shadow-md transition-all cursor-pointer"
+                  disabled={isSavingTemplate}
+                  className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold shadow-md transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {selectedTemplate ? 'Save Changes' : 'Create Template'}
+                  {isSavingTemplate ? 'Saving...' : selectedTemplate ? 'Save Changes' : 'Create Template'}
                 </button>
               </div>
             </form>
@@ -2827,7 +3691,56 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
         </div>
       )}
 
-      {/* --- MODAL 2: Template Preview Dialog --- */}
+      {/* --- MODAL 2: Delete Template Confirmation Dialog --- */}
+      {templateToDelete && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-bg-card border border-border-subtle w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-text-primary tracking-tight">Delete Template</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTemplateToDelete(null)}
+                className="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-neutral/10 transition-colors cursor-pointer"
+                disabled={isDeletingTemplate}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-3">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                <p className="text-sm font-semibold text-rose-900">
+                  Are you sure you want to delete <span className="font-bold">"{templateToDelete.name}"</span>? Any scheduled automations using this template will be affected.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-border-subtle flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTemplateToDelete(null)}
+                disabled={isDeletingTemplate}
+                className="px-5 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTemplate}
+                disabled={isDeletingTemplate}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white border border-rose-700 rounded-xl text-[13px] font-bold shadow-md transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              >
+                {isDeletingTemplate && <RefreshCw className="w-4 h-4 animate-spin" />}
+                {isDeletingTemplate ? 'Deleting...' : 'Okay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: Template Preview Dialog --- */}
       {isPreviewModalOpen && selectedTemplate && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-bg-card border border-border-subtle w-full max-w-xl max-h-[calc(100vh-2rem)] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -2882,7 +3795,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   </div>
                   {/* Content body */}
                   <div className="p-5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-                    {selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}
+                    {renderTemplatePreview(selectedTemplate.content)}
                   </div>
                 </div>
               ) : (
@@ -2906,13 +3819,13 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <div className="flex-1 p-3 overflow-y-auto space-y-2 flex flex-col justify-end">
                     {/* Security Notice */}
                     <div className="bg-[#fcf8e3] border border-[#faebcc] text-[#8a6d3b] text-[7.5px] py-1 px-2 rounded-lg text-center font-semibold leading-relaxed self-center max-w-[180px]">
-                      ðŸ”’ Messages are end-to-end encrypted via Apex Secure Link.
+                      Messages are end-to-end encrypted via Apex Secure Link.
                     </div>
                     {/* Incoming/Outgoing Bubble */}
                     <div className="bg-white text-slate-800 p-2.5 rounded-xl rounded-tl-none text-[9.5px] leading-relaxed shadow-xxs max-w-[190px] self-start border border-slate-200">
-                      <div className="whitespace-pre-wrap">{selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}</div>
+                      <div className="whitespace-pre-wrap">{renderTemplatePreview(selectedTemplate.content)}</div>
                       <div className="text-right text-[6.5px] text-gray-400 font-bold mt-1 uppercase tracking-wider">
-                        14:24 â€¢ Delivered
+                        14:24 PM
                       </div>
                     </div>
                   </div>
@@ -2933,7 +3846,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
         </div>
       )}
 
-      {/* --- MODAL 3: Schedule Campaign Automation --- */}
+      {/* --- MODAL 4: Schedule Campaign Automation --- */}
       {isAutomationModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-bg-card border border-border-subtle w-full max-w-lg max-h-[calc(100vh-2rem)] rounded-2xl shadow-xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -3231,6 +4144,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                     } px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary cursor-pointer`}
                   >
                     <option value="">Select Status</option>
+                    <option value="Draft">Draft</option>
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
@@ -3268,7 +4182,13 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <select
                     value={registryForm.channelType || ''}
                     onChange={(e) => {
-                      setRegistryForm(prev => ({ ...prev, channelType: e.target.value as any }));
+                      const nextChannelType = e.target.value as RegistryCampaign['channelType'];
+                      setRegistryForm(prev => ({
+                        ...prev,
+                        channelType: nextChannelType,
+                        templates: ['', '', '', '', '', '', '', '']
+                      }));
+                      setRegistryTemplateOptions([]);
                       if (registryErrors.channelType) setRegistryErrors(prev => ({ ...prev, channelType: '' }));
                     }}
                     className={`w-full text-xs font-bold bg-bg-viewport border ${
@@ -3300,6 +4220,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                       <label className="block text-[10px] font-bold text-gray-400">Template - Slot {slotIdx + 1}{getSlotDateLabel(slotIdx)}</label>
                       <select
                         value={(registryForm.templates || [])[slotIdx] || ''}
+                        disabled={!registryForm.channelType || isLoadingRegistryTemplates || registryTemplateOptions.length === 0}
                         onChange={(e) => {
                           const val = e.target.value;
                           setRegistryForm(prev => {
@@ -3310,11 +4231,20 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                         }}
                         className="w-full text-xs font-bold bg-bg-viewport border border-border-subtle px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary cursor-pointer"
                       >
-                        <option value="">Select Template</option>
-                        {sequenceTemplates.map(t => (
+                        <option value="">
+                          {isLoadingRegistryTemplates
+                            ? 'Loading templates...'
+                            : registryForm.channelType
+                              ? 'Select Template'
+                              : 'Select channel type first'}
+                        </option>
+                        {getRegistryTemplateOptionsForSlot(slotIdx).map(t => (
                           <option key={t.id} value={t.id}>{t.name}</option>
                         ))}
                       </select>
+                      {registryForm.channelType && !isLoadingRegistryTemplates && registryTemplateOptions.length === 0 && (
+                        <span className="text-[10px] font-semibold text-amber-600">No templates found for this channel type.</span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -3325,15 +4255,17 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 <button
                   type="button"
                   onClick={() => setIsRegistryModalOpen(false)}
+                  disabled={isSavingRegistryCampaign}
                   className="px-5 py-2.5 bg-bg-viewport border border-border-subtle hover:bg-bg-neutral text-[13px] font-bold rounded-xl transition-all shadow-md cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
+                  disabled={isSavingRegistryCampaign}
                   className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold shadow-md transition-all cursor-pointer"
                 >
-                  Save Campaign
+                  {isSavingRegistryCampaign ? 'Saving...' : 'Save Campaign'}
                 </button>
               </div>
             </form>
@@ -3377,7 +4309,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
               {/* Fake Email Content Body */}
               <div className="border border-border-subtle rounded-xl p-4 bg-white min-h-[160px] text-xs leading-relaxed text-slate-800 whitespace-pre-line shadow-inner max-h-[300px] overflow-y-auto">
-                {previewingTemplateObj.body.replace('{{customer_name}}', 'Emma Watson')}
+                {renderTemplatePreview(previewingTemplateObj.body, { customerName: 'Emma Watson' })}
               </div>
 
               <div className="flex items-center justify-end pt-2">

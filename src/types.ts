@@ -123,6 +123,7 @@ export interface CustomerAbandonedCheckout {
   variantPrices: Array<number | null>;
   price: number;
   qty: number;
+  nextScheduleEmail?: string;
   abandonedAt: string;
   currencyCode?: string;
 }
