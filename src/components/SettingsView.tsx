@@ -1,13 +1,20 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Settings, Mail, MessageSquare, Check, X, Search, Plus, Eye, Pencil, Trash2, 
-  Play, Pause, Calendar, Clock, Globe, Shield, Send, CheckCircle2, AlertCircle, RefreshCw,
+  EyeOff, Play, Pause, Calendar, Clock, Globe, Shield, Send, CheckCircle2, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Users, Zap
 } from 'lucide-react';
 import {
   fetchCustomerSegmentationSettings,
   saveCustomerSegmentationSettings,
 } from '../api/customerSegmentation';
+import {
+  fetchNotificationConfiguration,
+  saveNotificationConfiguration,
+  type NotificationConfigurationPayload,
+  type NotificationConfigurationSavePayload,
+  testEmailNotificationConfiguration,
+} from '../api/notificationConfiguration';
 
 interface CampaignTemplate {
   id: string;
@@ -296,7 +303,7 @@ function getTriggerCadenceDescription(a: CampaignAutomation, templates?: Campaig
     } else if (a.condition === 'Tag Added') {
       return 'On Tag Added';
     } else if (a.condition === 'Min Spend Threshold Reached') {
-      return `On Min Spend > â‚¹${(a.minSpendThreshold || 50000).toLocaleString()}`;
+      return `On Min Spend > Ã¢â€šÂ¹${(a.minSpendThreshold || 50000).toLocaleString()}`;
     }
     return `On ${a.condition || 'State Change'}`;
   }
@@ -309,34 +316,312 @@ interface SettingsViewProps {
   onNavigate?: (tab: string, actionModifier?: string) => void;
 }
 
+type NotificationFieldErrors = {
+  smtpHost: string;
+  smtpPort: string;
+  smtpUsername: string;
+  smtpPassword: string;
+  senderName: string;
+  senderEmail: string;
+  waPhoneNumberId: string;
+  waWabaId: string;
+  waAppId: string;
+  waAppSecret: string;
+  waWebhookVerifyToken: string;
+  waAccessToken: string;
+};
+
+const EMPTY_NOTIFICATION_FIELD_ERRORS: NotificationFieldErrors = {
+  smtpHost: '',
+  smtpPort: '',
+  smtpUsername: '',
+  smtpPassword: '',
+  senderName: '',
+  senderEmail: '',
+  waPhoneNumberId: '',
+  waWabaId: '',
+  waAppId: '',
+  waAppSecret: '',
+  waWebhookVerifyToken: '',
+  waAccessToken: '',
+};
+
+function getNotificationInputClassName(hasError: boolean): string {
+  return [
+    'w-full text-[13px] bg-bg-viewport border px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 text-text-primary font-medium transition-all',
+    hasError
+      ? 'border-rose-500 focus:ring-rose-200 focus:border-rose-500'
+      : 'border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary',
+  ].join(' ');
+}
+
+function hasStoredSecret(config?: { hasSecret?: boolean | null; isActive?: boolean | null } | null): boolean {
+  return Boolean(config?.hasSecret || config?.isActive);
+}
+
 export default function SettingsView({ settings, onUpdateSettings, onNavigate }: SettingsViewProps) {
   // --- Active Tab for API Configuration ---
   const [activeApiTab, setActiveApiTab] = useState<'email' | 'whatsapp'>('email');
 
   // --- API Settings state ---
-  const [smtpHost, setSmtpHost] = useState('smtp.techcrm.gateway.io');
-  const [smtpPort, setSmtpPort] = useState('587');
-  const [smtpSecurity, setSmtpSecurity] = useState('STARTTLS (Port 587 - Recommended)');
-  const [smtpUsername, setSmtpUsername] = useState('relay@techcrm-store.com');
-  const [smtpPassword, setSmtpPassword] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
-  const [senderName, setSenderName] = useState('TechCRM Store Customer Care');
-  const [senderEmail, setSenderEmail] = useState('office@techcrm-store.com');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('');
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [isEditingSmtpPassword, setIsEditingSmtpPassword] = useState(true);
+  const [isSmtpPasswordConfigured, setIsSmtpPasswordConfigured] = useState(false);
+  const [senderName, setSenderName] = useState('');
+  const [senderEmail, setSenderEmail] = useState('');
+  const [emailIsActive, setEmailIsActive] = useState(true);
 
-  const [waPhoneNumber, setWaPhoneNumber] = useState('+91 90000 12345');
-  const [waApiVersion, setWaApiVersion] = useState('v20.0');
-  const [waAppId, setWaAppId] = useState('4567812345');
-  const [waAccessToken, setWaAccessToken] = useState('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢');
-  const [waDisplayName, setWaDisplayName] = useState('TechCRM Customer Care');
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState('');
+  const [waWabaId, setWaWabaId] = useState('');
+  const [waAppId, setWaAppId] = useState('');
+  const [waAppSecret, setWaAppSecret] = useState('');
+  const [showWaAppSecret, setShowWaAppSecret] = useState(false);
+  const [waWebhookVerifyToken, setWaWebhookVerifyToken] = useState('');
+  const [showWaWebhookVerifyToken, setShowWaWebhookVerifyToken] = useState(false);
+  const [waAccessToken, setWaAccessToken] = useState('');
+  const [showWaAccessToken, setShowWaAccessToken] = useState(false);
+  const [isEditingWaAccessToken, setIsEditingWaAccessToken] = useState(true);
+  const [isWaAccessTokenConfigured, setIsWaAccessTokenConfigured] = useState(false);
+  const [waIsActive, setWaIsActive] = useState(true);
+  const [notificationFieldErrors, setNotificationFieldErrors] = useState<NotificationFieldErrors>(EMPTY_NOTIFICATION_FIELD_ERRORS);
+  const [isLoadingNotificationConfiguration, setIsLoadingNotificationConfiguration] = useState(true);
 
   // Toasts / Status messages for forms
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isSavingSegmentation, setIsSavingSegmentation] = useState(false);
   const [isLoadingSegmentation, setIsLoadingSegmentation] = useState(true);
+  const notificationLoadingTimerRef = useRef<number | null>(null);
+  const notificationLoadingStartedAtRef = useRef(0);
+  const toastTimerRef = useRef<number | null>(null);
+  const toastStartedAtRef = useRef(0);
+  const toastRemainingRef = useRef(5000);
+  const isToastHoveredRef = useRef(false);
+
+  const clearToastTimer = () => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+  };
+
+  const dismissToast = () => {
+    clearToastTimer();
+    toastRemainingRef.current = 5000;
+    isToastHoveredRef.current = false;
+    setToast(null);
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    clearToastTimer();
+    toastRemainingRef.current = 5000;
+    isToastHoveredRef.current = false;
     setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+    toastStartedAtRef.current = Date.now();
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      toastRemainingRef.current = 0;
+      setToast(null);
+    }, toastRemainingRef.current);
+  };
+
+  const pauseToastTimer = () => {
+    if (!toast || isToastHoveredRef.current) {
+      return;
+    }
+
+    isToastHoveredRef.current = true;
+    if (toastTimerRef.current !== null) {
+      const elapsed = Date.now() - toastStartedAtRef.current;
+      toastRemainingRef.current = Math.max(0, toastRemainingRef.current - elapsed);
+      clearToastTimer();
+    }
+  };
+
+  const resumeToastTimer = () => {
+    if (!toast || !isToastHoveredRef.current) {
+      return;
+    }
+
+    isToastHoveredRef.current = false;
+
+    if (toastRemainingRef.current <= 0) {
+      setToast(null);
+      return;
+    }
+
+    toastStartedAtRef.current = Date.now();
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      toastRemainingRef.current = 0;
+      setToast(null);
+    }, toastRemainingRef.current);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearToastTimer();
+      if (notificationLoadingTimerRef.current !== null) {
+        window.clearTimeout(notificationLoadingTimerRef.current);
+        notificationLoadingTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const clearNotificationFieldError = (field: keyof NotificationFieldErrors) => {
+    setNotificationFieldErrors(prev => (prev[field] ? { ...prev, [field]: '' } : prev));
+  };
+
+  const applyNotificationConfiguration = (config: NotificationConfigurationPayload | null) => {
+    const emailConfig = config?.emailRelayConfiguration;
+    const whatsappConfig = config?.whatsAppCloudConfiguration;
+    const smtpSecretExists = hasStoredSecret(emailConfig);
+
+    setSmtpHost(emailConfig?.smtpServerHostname ?? '');
+    setSmtpPort(emailConfig?.smtpPort !== null && emailConfig?.smtpPort !== undefined ? String(emailConfig.smtpPort) : '');
+    setSmtpUsername(emailConfig?.username ?? '');
+    setSmtpPassword('');
+    setShowSmtpPassword(false);
+    setIsSmtpPasswordConfigured(smtpSecretExists);
+    setIsEditingSmtpPassword(!smtpSecretExists);
+    setSenderName(emailConfig?.senderName ?? '');
+    setSenderEmail(emailConfig?.senderEmail ?? '');
+    setEmailIsActive(emailConfig?.isActive ?? true);
+
+    setWaPhoneNumberId(whatsappConfig?.PhoneNumberId ?? whatsappConfig?.phoneNumberId ?? '');
+    setWaWabaId(whatsappConfig?.WhatsAppBusinessAccountId ?? whatsappConfig?.whatsAppBusinessAccountId ?? '');
+    setWaAppId(
+      whatsappConfig?.MetaDeveloperAppId !== null && whatsappConfig?.MetaDeveloperAppId !== undefined
+        ? String(whatsappConfig.MetaDeveloperAppId)
+        : (whatsappConfig?.metaDeveloperAppId !== null && whatsappConfig?.metaDeveloperAppId !== undefined
+          ? String(whatsappConfig.metaDeveloperAppId)
+          : '')
+    );
+    const waSecretExists = hasStoredSecret(whatsappConfig) || Boolean(whatsappConfig?.MetaApiAccessToken ?? whatsappConfig?.metaApiAccessToken);
+    setWaAccessToken('');
+    setIsWaAccessTokenConfigured(waSecretExists);
+    setIsEditingWaAccessToken(!waSecretExists);
+    setWaAppSecret(whatsappConfig?.AppSecret ?? whatsappConfig?.appSecret ?? '');
+    setWaWebhookVerifyToken(whatsappConfig?.WebhookVerifyToken ?? whatsappConfig?.webhookVerifyToken ?? '');
+    setWaIsActive(whatsappConfig?.isActive ?? true);
+    setShowWaAppSecret(false);
+    setShowWaWebhookVerifyToken(false);
+    setShowWaAccessToken(false);
+    setNotificationFieldErrors(EMPTY_NOTIFICATION_FIELD_ERRORS);
+  };
+
+  const validateNotificationTab = (tab: 'email' | 'whatsapp') => {
+    const errors: NotificationFieldErrors = { ...EMPTY_NOTIFICATION_FIELD_ERRORS };
+
+    if (tab === 'email') {
+      if (!smtpHost.trim()) errors.smtpHost = 'SMTP server hostname is required.';
+      if (!smtpPort.trim()) errors.smtpPort = 'SMTP port is required.';
+      if (!smtpUsername.trim()) errors.smtpUsername = 'Username is required.';
+      if (isEditingSmtpPassword && !smtpPassword.trim()) errors.smtpPassword = 'SMTP password / API token is required.';
+      if (!senderName.trim()) errors.senderName = 'Sender name is required.';
+      if (!senderEmail.trim()) errors.senderEmail = 'Sender email is required.';
+    } else {
+      if (!waPhoneNumberId.trim()) errors.waPhoneNumberId = 'Phone Number ID is required.';
+      if (!waWabaId.trim()) errors.waWabaId = 'WhatsApp Business Account ID is required.';
+      if ((isEditingWaAccessToken || !isWaAccessTokenConfigured) && !waAccessToken.trim()) {
+        errors.waAccessToken = 'Meta API access token is required.';
+      }
+    }
+
+    return errors;
+  };
+
+  const buildNotificationConfigurationPayload = (): NotificationConfigurationSavePayload => ({
+    emailRelayConfiguration: {
+      smtpServerHostname: smtpHost.trim() || null,
+      smtpPort: smtpPort.trim() || null,
+      username: smtpUsername.trim() || null,
+      senderName: senderName.trim() || null,
+      senderEmail: senderEmail.trim() || null,
+      isActive: emailIsActive,
+      ...(isEditingSmtpPassword ? { smtpPasswordOrApiToken: smtpPassword.trim() || null } : {}),
+    },
+    whatsAppCloudConfiguration: {
+      PhoneNumberId: waPhoneNumberId.trim() || null,
+      WhatsAppBusinessAccountId: waWabaId.trim() || null,
+      MetaDeveloperAppId: waAppId.trim() || null,
+      AppSecret: waAppSecret.trim() || null,
+      WebhookVerifyToken: waWebhookVerifyToken.trim() || null,
+      isActive: waIsActive,
+      ...((isEditingWaAccessToken || !isWaAccessTokenConfigured)
+        ? { MetaApiAccessToken: waAccessToken.trim() || null }
+        : {}),
+    },
+  });
+
+  const loadNotificationConfiguration = async (signal?: AbortSignal) => {
+    if (notificationLoadingTimerRef.current !== null) {
+      window.clearTimeout(notificationLoadingTimerRef.current);
+      notificationLoadingTimerRef.current = null;
+    }
+
+    notificationLoadingStartedAtRef.current = Date.now();
+    setIsLoadingNotificationConfiguration(true);
+
+    try {
+      const data = await fetchNotificationConfiguration();
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      applyNotificationConfiguration(data);
+    } catch (error) {
+      if (!signal?.aborted) {
+        const message = error instanceof Error ? error.message : 'Failed to load notification configuration.';
+        showToast(message, 'error');
+        applyNotificationConfiguration(null);
+      }
+    } finally {
+      if (!signal?.aborted) {
+        const elapsed = Date.now() - notificationLoadingStartedAtRef.current;
+        const remaining = Math.max(0, 2000 - elapsed);
+        notificationLoadingTimerRef.current = window.setTimeout(() => {
+          notificationLoadingTimerRef.current = null;
+          setIsLoadingNotificationConfiguration(false);
+        }, remaining);
+      }
+    }
+  };
+
+  const handleSaveApiConfig = async () => {
+    if (isLoadingNotificationConfiguration) {
+      showToast('Notification configuration is still loading. Please try again in a moment.', 'info');
+      return;
+    }
+
+    const currentErrors = validateNotificationTab(activeApiTab);
+    setNotificationFieldErrors(currentErrors);
+
+    if (Object.values(currentErrors).some(Boolean)) {
+      return;
+    }
+
+    try {
+      const message = await saveNotificationConfiguration(buildNotificationConfigurationPayload());
+      showToast(message, 'success');
+      if (activeApiTab === 'whatsapp') {
+        setIsWaAccessTokenConfigured(true);
+        setIsEditingWaAccessToken(false);
+        setWaAccessToken('');
+        setShowWaAccessToken(false);
+      }
+      if (activeApiTab === 'email') {
+        await loadNotificationConfiguration();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save notification configuration.';
+      showToast(message, 'error');
+    }
   };
 
   // --- 2. Campaign Templates State ---
@@ -346,7 +631,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Welcome New Customer Campaign',
       type: 'Email',
       status: 'Active',
-      subject: 'Welcome to TechCRM Store! ðŸŽ',
+      subject: 'Welcome to TechCRM Store! Ã°Å¸Å½Â',
       content: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team',
       createdDate: '2026-06-10',
       lastUpdated: '2026-07-01',
@@ -358,7 +643,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Order Confirmation Receipt',
       type: 'WhatsApp',
       status: 'Active',
-      content: 'Hello {{customer_name}}! ðŸ›ï¸ Your order {{order_id}} of {{amount}} is confirmed. We are preparing it for shipment. Track your delivery status directly here: https://techcrm.store/track/{{order_id}}',
+      content: 'Hello {{customer_name}}! Ã°Å¸â€ºÂÃ¯Â¸Â Your order {{order_id}} of {{amount}} is confirmed. We are preparing it for shipment. Track your delivery status directly here: https://techcrm.store/track/{{order_id}}',
       createdDate: '2026-06-15',
       lastUpdated: '2026-07-05',
       eventType: 'Scheduled notification'
@@ -368,8 +653,8 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       name: 'Cart Abandonment Alert',
       type: 'Email',
       status: 'Active',
-      subject: 'Did you forget something? ðŸ›’',
-      content: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care',
+      subject: 'Did you forget something? Ã°Å¸â€ºâ€™',
+      content: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outÃ¢â‚¬â€complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care',
       createdDate: '2026-06-20',
       lastUpdated: '2026-07-06',
       eventType: 'Customer Action',
@@ -649,32 +934,35 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [previewingTemplateObj, setPreviewingTemplateObj] = useState<{ name: string; subject: string; body: string } | null>(null);
 
   const sequenceTemplates = [
-    { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
-    { id: 'TMP-ACB-02', name: 'Your cart is waiting', subject: 'Your cart is waiting! ðŸ›ï¸', body: 'Hello {{customer_name}}! We are holding your items for a little longer. Use coupon code CARTWAIT for a special 10% discount at checkout.\n\nShop now: https://techcrm.store/checkout' },
+    { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss outÃ¢â‚¬â€complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
+    { id: 'TMP-ACB-02', name: 'Your cart is waiting', subject: 'Your cart is waiting! Ã°Å¸â€ºÂÃ¯Â¸Â', body: 'Hello {{customer_name}}! We are holding your items for a little longer. Use coupon code CARTWAIT for a special 10% discount at checkout.\n\nShop now: https://techcrm.store/checkout' },
     { id: 'TMP-ACB-03', name: 'Complete your order today', subject: 'Last chance to complete your order!', body: 'Hi {{customer_name}},\n\nYour shopping cart is about to expire. Grab your favorite items before they go out of stock!\n\nLink to cart: https://techcrm.store/cart' },
-    { id: 'TMP-ACB-04', name: 'Limited stock available', subject: 'Hurry! Items in your cart are selling fast âš¡', body: 'Hi {{customer_name}},\n\nWe wanted to let you know that one or more items in your cart are low in stock. Checkout now to avoid disappointment!\n\nComplete purchase: https://techcrm.store/cart' },
+    { id: 'TMP-ACB-04', name: 'Limited stock available', subject: 'Hurry! Items in your cart are selling fast Ã¢Å¡Â¡', body: 'Hi {{customer_name}},\n\nWe wanted to let you know that one or more items in your cart are low in stock. Checkout now to avoid disappointment!\n\nComplete purchase: https://techcrm.store/cart' },
     { id: 'TMP-ACB-05', name: 'Still interested?', subject: 'Still thinking about it? Here is 10% off!', body: 'Hello {{customer_name}},\n\nWe noticed you are still considering your purchase. Here is an exclusive 10% discount coupon to make it easier: CARTSTILL10.\n\nCheckout: https://techcrm.store/cart' },
     { id: 'TMP-ACB-06', name: 'Don\'t miss your items', subject: 'Don\'t miss out on your curated items!', body: 'Hi {{customer_name}},\n\nYour selected items are still reserved for you, but we can only hold them for a brief period. Click below to checkout safely.\n\nRetrieve cart: https://techcrm.store/cart' },
-    { id: 'TMP-ACB-07', name: 'Final reminder before your cart expires', subject: 'FINAL NOTICE: Your cart is expiring in 2 hours â°', body: 'Dear {{customer_name}},\n\nThis is your absolute final notice before your shopping cart expires and your items are returned to stock. Complete your purchase now for 15% off with code FINAL15.\n\nCheckout: https://techcrm.store/cart' },
-    { id: 'TEMP-001', name: 'Welcome New Customer Campaign', subject: 'Welcome to TechCRM Store! ðŸŽ', body: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team' },
-    { id: 'TEMP-003', name: 'Cart Abandonment Alert', subject: 'Did you forget something? ðŸ›’', body: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outâ€”complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' }
+    { id: 'TMP-ACB-07', name: 'Final reminder before your cart expires', subject: 'FINAL NOTICE: Your cart is expiring in 2 hours Ã¢ÂÂ°', body: 'Dear {{customer_name}},\n\nThis is your absolute final notice before your shopping cart expires and your items are returned to stock. Complete your purchase now for 15% off with code FINAL15.\n\nCheckout: https://techcrm.store/cart' },
+    { id: 'TEMP-001', name: 'Welcome New Customer Campaign', subject: 'Welcome to TechCRM Store! Ã°Å¸Å½Â', body: 'Hi {{customer_name}},\n\nWelcome to TechCRM Store! We are thrilled to have you as part of our exclusive community. Enjoy a welcome discount on your next purchase using coupon code WELCOME10.\n\nBest regards,\nThe TechCRM Team' },
+    { id: 'TEMP-003', name: 'Cart Abandonment Alert', subject: 'Did you forget something? Ã°Å¸â€ºâ€™', body: 'Hi {{customer_name}},\n\nIt looks like you left some amazing items in shopping cart. Don\'t miss outÃ¢â‚¬â€complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' }
   ];
 
   // --- Handlers for Email/WhatsApp Settings ---
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     setIsTestingConnection(true);
-    setTimeout(() => {
-      setIsTestingConnection(false);
+
+    try {
       if (activeApiTab === 'email') {
-        showToast('SMTP Outbound Relay handshake successful! Connection status is CONNECTED.', 'success');
+        const message = await testEmailNotificationConfiguration();
+        showToast(message, 'success');
       } else {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         showToast('WhatsApp Cloud API authentication token verified successfully! Webhook ping active.', 'success');
       }
-    }, 1500);
-  };
-
-  const handleSaveApiConfig = () => {
-    showToast(`${activeApiTab === 'email' ? 'SMTP Email' : 'WhatsApp Cloud API'} configuration saved successfully!`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to test notification connection.';
+      showToast(message, 'error');
+    } finally {
+      setIsTestingConnection(false);
+    }
   };
 
   const loadSegmentationSettings = async (signal?: AbortSignal) => {
@@ -775,13 +1063,30 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   };
 
   useEffect(() => {
+    if (activeTab !== 'segmentation') {
+      return;
+    }
+
     const controller = new AbortController();
     void loadSegmentationSettings(controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'notifications') {
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadNotificationConfiguration(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeTab]);
 
   // --- Handlers for Templates ---
   const filteredTemplates = useMemo(() => {
@@ -1281,17 +1586,20 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   };
 
   return (
-    <div className="space-y-8 py-4 animate-in fade-in duration-300">
+    <div className="space-y-4 py-2 sm:py-3 animate-in fade-in duration-300">
       {/* Toast Alert Banner */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-xs font-bold animate-in slide-in-from-top-4 duration-300 ${
+        <div
+          onMouseEnter={pauseToastTimer}
+          onMouseLeave={resumeToastTimer}
+          className={`fixed top-4 right-4 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-xs font-bold animate-in slide-in-from-top-4 duration-300 ${
           toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 
           toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' :
           'bg-brand-bg-active border-brand-primary/30 text-brand-primary'
         }`}>
           {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4.5 h-4.5 text-rose-600" />}
           <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-75 cursor-pointer">
+          <button onClick={dismissToast} className="ml-2 hover:opacity-75 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1354,7 +1662,14 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
       {/* SECTION 1: Campaign Service API Config */}
       {activeTab === 'notifications' && (
-        <div className="bg-bg-card border border-border-subtle/80 border-t-0 rounded-b-2xl rounded-t-none p-6 shadow-xxs space-y-6 transition-all duration-200 mt-0">
+        <div className="bg-bg-card border border-border-subtle/80 border-t-0 rounded-b-2xl rounded-t-none p-3 sm:p-5 shadow-xxs space-y-5 transition-all duration-200 mt-0">
+          {/* 
+            {isLoadingNotificationConfiguration ? (
+              <div className="min-h-[520px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
+                <CustomerDataLoader overlay={false} />
+              </div>
+            ) : null}
+          */}
           <div 
             className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4 select-none"
           >
@@ -1374,7 +1689,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
             >
               <button
                 type="button"
-                onClick={() => { setActiveApiTab('email'); setToast(null); }}
+                onClick={() => { setActiveApiTab('email'); dismissToast(); }}
                 className={`flex items-center gap-1.5 px-4.5 py-2 rounded-xl transition-all cursor-pointer border ${
                   activeApiTab === 'email' 
                     ? 'bg-[#B9D7FC] text-slate-900 border-[#96bae6] shadow-xxs font-extrabold' 
@@ -1385,7 +1700,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
               </button>
               <button
                 type="button"
-                onClick={() => { setActiveApiTab('whatsapp'); setToast(null); }}
+                onClick={() => { setActiveApiTab('whatsapp'); dismissToast(); }}
                 className={`flex items-center gap-1.5 px-4.5 py-2 rounded-xl transition-all cursor-pointer border ${
                   activeApiTab === 'whatsapp' 
                     ? 'bg-[#B9D7FC] text-slate-900 border-[#96bae6] shadow-xxs font-extrabold' 
@@ -1399,92 +1714,190 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
 
           {/* Dynamic Form based on Tab */}
           {activeApiTab === 'email' ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+          <div className="w-full max-w-[660px] mx-auto space-y-4 sm:space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">SMTP Server Hostname</label>
                 <input 
                   type="text" 
+                  name="smtp-server-hostname"
+                  autoComplete="off"
                   value={smtpHost}
-                  onChange={(e) => setSmtpHost(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  onChange={(e) => {
+                    setSmtpHost(e.target.value);
+                    clearNotificationFieldError('smtpHost');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.smtpHost))}
                 />
+                {notificationFieldErrors.smtpHost && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.smtpHost}</p>
+                )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Relay Outbound Port</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">SMTP Port</label>
                 <input 
                   type="text" 
+                  name="smtp-port"
+                  autoComplete="off"
                   value={smtpPort}
-                  onChange={(e) => setSmtpPort(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  onChange={(e) => {
+                    setSmtpPort(e.target.value);
+                    clearNotificationFieldError('smtpPort');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.smtpPort))}
                 />
+                {notificationFieldErrors.smtpPort && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.smtpPort}</p>
+                )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">SMTP Security Protocol</label>
-                <select 
-                  value={smtpSecurity}
-                  onChange={(e) => setSmtpSecurity(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all cursor-pointer"
-                >
-                  <option>STARTTLS (Port 587 - Recommended)</option>
-                  <option>SSL/TLS (Port 465)</option>
-                  <option>Unsecured (Port 25)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Authentication Username</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Username</label>
                 <input 
                   type="text" 
+                  name="smtp-username"
+                  autoComplete="off"
                   value={smtpUsername}
-                  onChange={(e) => setSmtpUsername(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  onChange={(e) => {
+                    setSmtpUsername(e.target.value);
+                    clearNotificationFieldError('smtpUsername');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.smtpUsername))}
                 />
+                {notificationFieldErrors.smtpUsername && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.smtpUsername}</p>
+                )}
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">SMTP Password / API Token</label>
-                <input 
-                  type="password" 
-                  value={smtpPassword}
-                  onChange={(e) => setSmtpPassword(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
-                />
+                {!isEditingSmtpPassword && isSmtpPasswordConfigured ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-dashed border-amber-200 bg-amber-50/70 px-3.5 py-3">
+                    <div className="space-y-0.5">
+                      <p className="text-[13px] font-bold text-amber-900">Password is set.</p>
+                      <p className="text-[12px] text-amber-700">Click Update to enter a new SMTP password or API token.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingSmtpPassword(true);
+                        setSmtpPassword('');
+                        setShowSmtpPassword(false);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-600 text-white text-[12px] font-bold hover:bg-amber-700 transition-colors shadow-xxs"
+                    >
+                      Update
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        name="smtp-password-or-api-token"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        style={{ WebkitTextSecurity: showSmtpPassword ? 'none' : 'disc' } as React.CSSProperties}
+                        value={smtpPassword}
+                        onChange={(e) => {
+                          setSmtpPassword(e.target.value);
+                          clearNotificationFieldError('smtpPassword');
+                        }}
+                        className={`${getNotificationInputClassName(Boolean(notificationFieldErrors.smtpPassword))} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPassword(prev => !prev)}
+                        aria-label={showSmtpPassword ? 'Hide SMTP password / API token' : 'Show SMTP password / API token'}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {isSmtpPasswordConfigured && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingSmtpPassword(false);
+                          setSmtpPassword('');
+                          setShowSmtpPassword(false);
+                          clearNotificationFieldError('smtpPassword');
+                        }}
+                        className="text-[12px] font-bold text-slate-500 hover:text-slate-700 transition-colors w-fit"
+                      >
+                        Keep current password
+                      </button>
+                    )}
+                  </div>
+                )}
+                {notificationFieldErrors.smtpPassword && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.smtpPassword}</p>
+                )}
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sender Mask Friendly Name</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sender Name</label>
                 <input 
                   type="text" 
+                  name="sender-name"
+                  autoComplete="off"
                   value={senderName}
-                  onChange={(e) => setSenderName(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  onChange={(e) => {
+                    setSenderName(e.target.value);
+                    clearNotificationFieldError('senderName');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.senderName))}
                 />
+                {notificationFieldErrors.senderName && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.senderName}</p>
+                )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Verified Outbound Sender Email Address</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sender Email</label>
                 <input 
                   type="email" 
+                  name="sender-email"
+                  autoComplete="off"
                   value={senderEmail}
-                  onChange={(e) => setSenderEmail(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  onChange={(e) => {
+                    setSenderEmail(e.target.value);
+                    clearNotificationFieldError('senderEmail');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.senderEmail))}
                 />
+                {notificationFieldErrors.senderEmail && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.senderEmail}</p>
+                )}
+              </div>
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border-subtle bg-bg-viewport px-3.5 py-3">
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider">Active</label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={emailIsActive}
+                    aria-label={emailIsActive ? 'Disable email configuration' : 'Enable email configuration'}
+                    onClick={() => setEmailIsActive(prev => !prev)}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                      emailIsActive ? 'bg-emerald-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                        emailIsActive ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-5 border-t border-border-subtle gap-4">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-100 shadow-xxs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> CONNECTED / READY
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="pt-4 border-t border-border-subtle">
+              <div className="flex flex-col sm:flex-row gap-2 w-full">
                 <button
                   type="button"
                   disabled={isTestingConnection}
                   onClick={handleTestConnection}
-                  className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer border border-slate-200 flex items-center gap-1.5 shadow-xxs"
+                  className="w-full sm:flex-1 px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer border border-slate-200 flex items-center justify-center gap-1.5 shadow-xxs whitespace-nowrap shrink-0"
                 >
                   {isTestingConnection ? (
                     <>
@@ -1499,7 +1912,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 <button
                   type="button"
                   onClick={handleSaveApiConfig}
-                  className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs"
+                  className="w-full sm:flex-1 px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5"
                 >
                   Save Email Configuration
                 </button>
@@ -1507,72 +1920,168 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">WhatsApp Phone Number</label>
-                <input 
-                  type="text" 
-                  value={waPhoneNumber}
-                  onChange={(e) => setWaPhoneNumber(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Meta Cloud API Version</label>
-                <input 
-                  type="text" 
-                  value={waApiVersion}
-                  onChange={(e) => setWaApiVersion(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Meta Developer App ID</label>
-                <input 
-                  type="text" 
-                  value={waAppId}
-                  onChange={(e) => setWaAppId(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
-                />
-              </div>
-            </div>
-
+          <div className="w-full max-w-[660px] mx-auto space-y-4 sm:space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sender Profile Display Name</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Phone Number ID</label>
                 <input 
                   type="text" 
-                  value={waDisplayName}
-                  onChange={(e) => setWaDisplayName(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  name="wa-config-field-1"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={waPhoneNumberId}
+                  onChange={(e) => {
+                    setWaPhoneNumberId(e.target.value);
+                    clearNotificationFieldError('waPhoneNumberId');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.waPhoneNumberId))}
                 />
+                {notificationFieldErrors.waPhoneNumberId && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.waPhoneNumberId}</p>
+                )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Meta API Access Token</label>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">WhatsApp Business Account ID (WABA ID)</label>
                 <input 
-                  type="password" 
-                  value={waAccessToken}
-                  onChange={(e) => setWaAccessToken(e.target.value)}
-                  className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
+                  type="text" 
+                  name="wa-config-field-2"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={waWabaId}
+                  onChange={(e) => {
+                    setWaWabaId(e.target.value);
+                    clearNotificationFieldError('waWabaId');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.waWabaId))}
                 />
+                {notificationFieldErrors.waWabaId && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.waWabaId}</p>
+                )}
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Meta API Access Token</label>
+                {!isEditingWaAccessToken && isWaAccessTokenConfigured ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-dashed border-amber-200 bg-amber-50/70 px-3.5 py-3">
+                    <div className="space-y-0.5">
+                      <p className="text-[13px] font-bold text-amber-900">Access token is set.</p>
+                      <p className="text-[12px] text-amber-700">Click Update to enter a new Meta API access token.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingWaAccessToken(true);
+                        setWaAccessToken('');
+                        setShowWaAccessToken(false);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-600 text-white text-[12px] font-bold hover:bg-amber-700 transition-colors shadow-xxs"
+                    >
+                      Update
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        name="wa-config-access-token"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        data-lpignore="true"
+                        data-form-type="other"
+                        style={{ WebkitTextSecurity: showWaAccessToken ? 'none' : 'disc' } as React.CSSProperties}
+                        value={waAccessToken}
+                        onChange={(e) => {
+                          setWaAccessToken(e.target.value);
+                          clearNotificationFieldError('waAccessToken');
+                        }}
+                        className={`${getNotificationInputClassName(Boolean(notificationFieldErrors.waAccessToken))} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowWaAccessToken(prev => !prev)}
+                        aria-label={showWaAccessToken ? 'Hide Meta API access token' : 'Show Meta API access token'}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        {showWaAccessToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {isWaAccessTokenConfigured && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingWaAccessToken(false);
+                          setWaAccessToken('');
+                          setShowWaAccessToken(false);
+                          clearNotificationFieldError('waAccessToken');
+                        }}
+                        className="text-[12px] font-bold text-slate-500 hover:text-slate-700 transition-colors w-fit"
+                      >
+                        Keep current access token
+                      </button>
+                    )}
+                  </div>
+                )}
+                {notificationFieldErrors.waAccessToken && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.waAccessToken}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Meta Developer App ID <span className="font-semibold normal-case text-gray-500">(Optional)</span></label>
+                <input 
+                  type="text" 
+                  name="wa-config-field-3"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={waAppId}
+                  onChange={(e) => {
+                    setWaAppId(e.target.value);
+                    clearNotificationFieldError('waAppId');
+                  }}
+                  className={getNotificationInputClassName(Boolean(notificationFieldErrors.waAppId))}
+                />
+                {notificationFieldErrors.waAppId && (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600">{notificationFieldErrors.waAppId}</p>
+                )}
+              </div>
+              <div className="md:self-end">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border-subtle bg-bg-viewport px-3.5 py-3">
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider">Active</label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={waIsActive}
+                    aria-label={waIsActive ? 'Disable WhatsApp configuration' : 'Enable WhatsApp configuration'}
+                    onClick={() => setWaIsActive(prev => !prev)}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                      waIsActive ? 'bg-emerald-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                        waIsActive ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-5 border-t border-border-subtle gap-4">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-100 shadow-xxs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> META SYSTEM TOKEN SECURED
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="pt-4 border-t border-border-subtle">
+              <div className="flex flex-col sm:flex-row gap-2 w-full">
                 <button
                   type="button"
                   disabled={isTestingConnection}
                   onClick={handleTestConnection}
-                  className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer border border-slate-200 flex items-center gap-1.5 shadow-xxs"
+                  className="w-full sm:flex-1 px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer border border-slate-200 flex items-center justify-center gap-1.5 shadow-xxs whitespace-nowrap shrink-0"
                 >
                   {isTestingConnection ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Pinging Meta Endpoint...
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Verifying Relay...
                     </>
                   ) : (
                     <>
@@ -1583,7 +2092,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                 <button
                   type="button"
                   onClick={handleSaveApiConfig}
-                  className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs"
+                  className="w-full sm:flex-1 px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5"
                 >
                   Save WhatsApp Configuration
                 </button>
@@ -1591,8 +2100,8 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
             </div>
           </div>
         )}
-      </div>
-    )}
+        </div>
+      )}
 
       {/* SECTION 2: Shopify Automated Customer Segmentation Rules */}
       {activeTab === 'segmentation' && (
@@ -1960,19 +2469,19 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                         <span>ID: {t.id}</span>
                         {t.subject && (
                           <>
-                            <span>â€¢</span>
+                            <span>Ã¢â‚¬Â¢</span>
                             <span className="truncate max-w-xs">Subject: {t.subject}</span>
                           </>
                         )}
                         {t.eventType && (
                           <>
-                            <span>â€¢</span>
+                            <span>Ã¢â‚¬Â¢</span>
                             <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">Event: {t.eventType}</span>
                           </>
                         )}
                         {t.customerActionType && (
                           <>
-                            <span>â€¢</span>
+                            <span>Ã¢â‚¬Â¢</span>
                             <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">Trigger: {t.customerActionType === 'new customer' ? 'New Customer' : t.customerActionType === 'Abounded checkout' ? 'Abandoned Checkout' : t.customerActionType === 'In Active customer' ? 'Inactive Customer' : t.customerActionType}</span>
                           </>
                         )}
@@ -2720,7 +3229,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <input 
                     type="text"
                     required={templateForm.type === 'Email'}
-                    placeholder="e.g. Welcome to our CRM Store! ðŸŽ"
+                    placeholder="e.g. Welcome to our CRM Store! Ã°Å¸Å½Â"
                     value={templateForm.subject || ''}
                     onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
                     className="w-full text-[13px] bg-bg-viewport border border-border-subtle px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary font-medium transition-all"
@@ -2882,7 +3391,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   </div>
                   {/* Content body */}
                   <div className="p-5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-                    {selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}
+                    {selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'Ã¢â€šÂ¹15,000')}
                   </div>
                 </div>
               ) : (
@@ -2898,7 +3407,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                       TC
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold leading-tight">{waDisplayName}</div>
+                      <div className="text-[10px] font-bold leading-tight">WhatsApp Business</div>
                       <div className="text-[7.5px] text-emerald-200 leading-none mt-0.5">Verified Business Profile</div>
                     </div>
                   </div>
@@ -2906,13 +3415,13 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
                   <div className="flex-1 p-3 overflow-y-auto space-y-2 flex flex-col justify-end">
                     {/* Security Notice */}
                     <div className="bg-[#fcf8e3] border border-[#faebcc] text-[#8a6d3b] text-[7.5px] py-1 px-2 rounded-lg text-center font-semibold leading-relaxed self-center max-w-[180px]">
-                      ðŸ”’ Messages are end-to-end encrypted via Apex Secure Link.
+                      Ã°Å¸â€â€™ Messages are end-to-end encrypted via Apex Secure Link.
                     </div>
                     {/* Incoming/Outgoing Bubble */}
                     <div className="bg-white text-slate-800 p-2.5 rounded-xl rounded-tl-none text-[9.5px] leading-relaxed shadow-xxs max-w-[190px] self-start border border-slate-200">
-                      <div className="whitespace-pre-wrap">{selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'â‚¹15,000')}</div>
+                      <div className="whitespace-pre-wrap">{selectedTemplate.content.replace('{{customer_name}}', 'Anish Grover').replace('{{order_id}}', '#SH-88710').replace('{{amount}}', 'Ã¢â€šÂ¹15,000')}</div>
                       <div className="text-right text-[6.5px] text-gray-400 font-bold mt-1 uppercase tracking-wider">
-                        14:24 â€¢ Delivered
+                        14:24 Ã¢â‚¬Â¢ Delivered
                       </div>
                     </div>
                   </div>

@@ -42,6 +42,7 @@ const CUSTOMER_GRID_COLUMNS: ResizableColumnConfig[] = [
   { id: 'lastLogin', width: 88, minWidth: 80, maxWidth: 170 },
   { id: 'createdDate', width: 96, minWidth: 86, maxWidth: 180 },
   { id: 'segment', width: 104, minWidth: 94, maxWidth: 180 },
+  { id: 'abandonedCheckout', width: 120, minWidth: 108, maxWidth: 200 },
   { id: 'action', width: 72, minWidth: 64, maxWidth: 100 }
 ];
 
@@ -66,6 +67,10 @@ const DETAILED_ORDER_GRID_COLUMNS: ResizableColumnConfig[] = [
   { id: 'deliveryStatus', width: 88, minWidth: 72, maxWidth: 200 },
   { id: 'totalAmount', width: 92, minWidth: 72, maxWidth: 200 }
 ];
+
+function getFrontendOrderCount(customer?: Pick<Customer, 'orders'> | null): number {
+  return customer?.orders?.length ?? 0;
+}
 
 const COUNTRY_OPTIONS = [
   'Afghanistan',
@@ -693,6 +698,7 @@ export default function CustomerSummaryView({
   const [profileCustomer, setProfileCustomer] = useState<Customer | null>(null);
   const [popupCustomer, setPopupCustomer] = useState<Customer | null>(null);
   const [popupActiveTab, setPopupActiveTab] = useState<'abandoned' | 'refunds' | 'discounts'>('abandoned');
+  const [popupViewMode, setPopupViewMode] = useState<'full' | 'abandoned-only'>('full');
   const [abandonedCheckoutRows, setAbandonedCheckoutRows] = useState<CustomerAbandonedCheckout[]>([]);
   const [isAbandonedCheckoutsLoading, setIsAbandonedCheckoutsLoading] = useState(false);
   const [abandonedCheckoutsError, setAbandonedCheckoutsError] = useState<string | null>(null);
@@ -728,6 +734,7 @@ export default function CustomerSummaryView({
 const closePopupCustomer = () => {
     setPopupCustomer(null);
     setPopupActiveTab('abandoned');
+    setPopupViewMode('full');
     setAbandonedCheckoutRows([]);
     setAbandonedCheckoutsError(null);
     setIsAbandonedCheckoutsLoading(false);
@@ -1100,6 +1107,47 @@ const closePopupCustomer = () => {
     setOrderMaxPrice('');
     setOrderCurrentPage(1);
   }, [selectedCustomer]);
+
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1920));
+
+  React.useEffect(() => {
+    const updateViewportWidth = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    updateViewportWidth();
+    window.addEventListener('resize', updateViewportWidth);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportWidth);
+    };
+  }, []);
+
+  const isCompactCustomerGrid = viewportWidth < 1750;
+  const customerGridScale = isCompactCustomerGrid ? 0.82 : 1;
+  const customerGridRowTextClass = isCompactCustomerGrid ? 'text-[11px] leading-tight' : 'text-[13.5px]';
+  const customerGridHeaderTextClass = isCompactCustomerGrid ? 'text-[8.5px] leading-tight tracking-tight' : 'text-[10.5px] leading-none tracking-tight';
+  const customerGridHeaderPaddingClass = isCompactCustomerGrid ? 'py-1 px-2' : 'py-2 px-3.5';
+  const customerGridCellPaddingClass = isCompactCustomerGrid ? 'py-1 px-2' : 'py-2 px-3.5';
+  const customerGridNameTextClass = isCompactCustomerGrid
+    ? 'text-[11px] font-bold text-text-primary hover:text-brand-primary cursor-pointer hover:underline break-words leading-tight'
+    : 'text-[14px] font-bold text-text-primary hover:text-brand-primary cursor-pointer hover:underline truncate';
+  const customerGridEmailTextClass = isCompactCustomerGrid
+    ? 'text-[11px] text-text-primary font-medium break-words leading-tight'
+    : 'text-[14px] text-text-primary font-medium truncate';
+  const customerGridCountryTextClass = isCompactCustomerGrid
+    ? 'text-[11px] text-text-secondary font-medium break-words leading-tight'
+    : 'text-[14px] text-text-secondary font-medium truncate';
+  const customerGridLocationTextClass = isCompactCustomerGrid
+    ? 'text-[10.5px] text-text-secondary font-medium whitespace-normal break-words leading-snug'
+    : 'text-[13px] text-text-secondary font-medium whitespace-normal break-words leading-snug';
+  const customerGridNumericTextClass = isCompactCustomerGrid
+    ? 'text-[11px]'
+    : 'text-[14px]';
+  const customerGridBadgeTextClass = isCompactCustomerGrid
+    ? 'text-[7.5px]'
+    : 'text-[9px] sm:text-[10px] lg:text-[10.5px]';
+  const customerGridActionCellClass = isCompactCustomerGrid ? 'py-1 px-2' : 'py-2 px-2';
 
   const [showSegmentSettings, setShowSegmentSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1744,8 +1792,8 @@ const closePopupCustomer = () => {
         className={`${className} relative group overflow-hidden`}
         onClick={onClick}
       >
-        <div className={`flex items-center justify-between gap-0.5 pr-2 min-w-0 ${clickable ? 'cursor-pointer select-none' : ''}`}>
-          <span className="flex-none whitespace-nowrap text-[10.5px] leading-none tracking-tight">{content}</span>
+        <div className={`flex items-center ${isCompactCustomerGrid ? 'justify-start gap-0.5 pr-1' : 'justify-between gap-0.5 pr-2'} min-w-0 ${clickable ? 'cursor-pointer select-none' : ''}`}>
+          <span className={`min-w-0 ${isCompactCustomerGrid ? 'flex-1 whitespace-normal break-words' : 'flex-none whitespace-nowrap'} ${customerGridHeaderTextClass}`}>{content}</span>
           <ResizeHandle
             columnId={columnId}
             onResizeStart={grid.startResize}
@@ -1760,6 +1808,14 @@ const closePopupCustomer = () => {
   const sortedCustomers = useMemo(() => {
     if (!sortColumn || !sortDirection) return filteredCustomers;
     return [...filteredCustomers].sort((a, b) => {
+      if (sortColumn === 'totalOrders') {
+        const countA = getFrontendOrderCount(a);
+        const countB = getFrontendOrderCount(b);
+        return sortDirection === 'asc'
+          ? countA - countB
+          : countB - countA;
+      }
+
       let valA = a[sortColumn as keyof Customer];
       let valB = b[sortColumn as keyof Customer];
 
@@ -2742,14 +2798,14 @@ const closePopupCustomer = () => {
                           onClick={applyCustomerFilters}
                           className={`${compactActionButtonClass} border border-[#96bae6] bg-[#B9D7FC] text-slate-900 hover:bg-[#9cbdf0]`}
                         >
-                          <Search className="w-3 h-3" /> Search
+                           Search
                         </button>
                         <button
                           type="button"
                           onClick={clearCustomerFilters}
                           className={`${compactActionButtonClass} border border-gray-300 bg-white text-gray-700 hover:bg-gray-50`}
                         >
-                          <X className="w-3 h-3" /> Clear
+                          Clear
                         </button>
                       </div>
                     </div>
@@ -2778,19 +2834,23 @@ const closePopupCustomer = () => {
           ) : (
             <div className="border-t border-gray-300 overflow-hidden">
               <div className="hidden xl:block">
-                <div className="overflow-x-auto">
+                <div className={isCompactCustomerGrid ? 'overflow-hidden' : 'overflow-x-auto'}>
                 <table
-                  className="w-full text-left border-collapse table-fixed min-w-[1200px]"
-                  style={{ minWidth: `${customerGrid.tableWidth}px` }}
+                  className="w-full text-left border-collapse table-fixed"
+                  style={{ minWidth: `${customerGrid.tableWidth * customerGridScale}px` }}
                 >
                   <colgroup>
                     {CUSTOMER_GRID_COLUMNS.map((column) => (
-                      <col key={column.id} style={customerGrid.getColStyle(column.id)} />
+                      <col key={column.id} style={{
+                        width: `${Math.max(1, Math.round(Number.parseFloat(String(customerGrid.getColStyle(column.id).width)) * customerGridScale))}px`,
+                        minWidth: `${Math.max(1, Math.round(Number.parseFloat(String(customerGrid.getColStyle(column.id).minWidth)) * customerGridScale))}px`,
+                        maxWidth: `${Math.max(1, Math.round(Number.parseFloat(String(customerGrid.getColStyle(column.id).maxWidth)) * customerGridScale))}px`
+                      }} />
                     ))}
                   </colgroup>
                   <thead>
-                    <tr className="bg-[#B9D7FC] text-slate-900 text-[13px] font-bold border-b border-gray-300">
-                      <th className="py-2 px-3 text-center border-r border-gray-300 select-none relative group">
+                    <tr className={`bg-[#B9D7FC] text-slate-900 font-bold border-b border-gray-300 ${customerGridRowTextClass}`}>
+                      <th className={`${isCompactCustomerGrid ? 'py-1.5 px-2.5' : 'py-2 px-3'} text-center border-r border-gray-300 select-none relative group`}>
                         {/* No checkbox in header per user request */}
                         <ResizeHandle
                           columnId="expander"
@@ -2799,18 +2859,19 @@ const closePopupCustomer = () => {
                           onResizeEnd={customerGrid.handleResizeEnd}
                         />
                       </th>
-                      {renderResizableHeader(customerGrid, 'profile', <>Profile</>, 'py-2 px-3 text-[13px] font-bold text-slate-900 uppercase text-center border-r border-gray-300')}
-                      {renderResizableHeader(customerGrid, 'name', <>Customer Name / Id <SortArrow column="name" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('name'))}
-                      {renderResizableHeader(customerGrid, 'email', <>Email / Phone <SortArrow column="email" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('email'))}
-                      {renderResizableHeader(customerGrid, 'country', <>Country <SortArrow column="country" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('country'))}
-                      {renderResizableHeader(customerGrid, 'location', <>Location <SortArrow column="location" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('location'))}
-                      {renderResizableHeader(customerGrid, 'orders', <># Orders <SortArrow column="totalOrders" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('totalOrders'))}
-                      {renderResizableHeader(customerGrid, 'spend', <>Lifetime Spend <SortArrow column="totalSpend" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('totalSpend'))}
-                      {renderResizableHeader(customerGrid, 'lastOrder', <>Last Order Date <SortArrow column="lastOrderDate" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('lastOrderDate'))}
-                      {renderResizableHeader(customerGrid, 'lastLogin', <>Last Login <SortArrow column="lastLogin" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('lastLogin'))}
-                      {renderResizableHeader(customerGrid, 'createdDate', <>Created Date <SortArrow column="createdAt" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('createdAt'))}
-                      {renderResizableHeader(customerGrid, 'segment', <>Customer Segment <SortArrow column="segment" /></>, 'py-2 px-3.5 text-[13px] font-bold text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300', () => handleSort('segment'))}
-                      {renderResizableHeader(customerGrid, 'action', <>Action</>, 'py-2 px-2 text-[13px] font-bold text-slate-900 uppercase text-center')}
+                      {renderResizableHeader(customerGrid, 'profile', <>Profile</>, `${isCompactCustomerGrid ? 'py-1.5 px-2.5' : 'py-2 px-3'} text-slate-900 uppercase text-center border-r border-gray-300`)}
+                      {renderResizableHeader(customerGrid, 'name', <>Customer Name / Id <SortArrow column="name" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('name'))}
+                      {renderResizableHeader(customerGrid, 'email', <>Email / Phone <SortArrow column="email" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('email'))}
+                      {renderResizableHeader(customerGrid, 'country', <>Country <SortArrow column="country" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('country'))}
+                      {renderResizableHeader(customerGrid, 'location', <>Location <SortArrow column="location" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('location'))}
+                      {renderResizableHeader(customerGrid, 'orders', <># Orders <SortArrow column="totalOrders" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('totalOrders'))}
+                      {renderResizableHeader(customerGrid, 'spend', <>Lifetime Spend <SortArrow column="totalSpend" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('totalSpend'))}
+                      {renderResizableHeader(customerGrid, 'lastOrder', <>Last Order Date <SortArrow column="lastOrderDate" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('lastOrderDate'))}
+                      {renderResizableHeader(customerGrid, 'lastLogin', <>Last Login <SortArrow column="lastLogin" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('lastLogin'))}
+                      {renderResizableHeader(customerGrid, 'createdDate', <>Created Date <SortArrow column="createdAt" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('createdAt'))}
+                      {renderResizableHeader(customerGrid, 'segment', <>Customer Segment <SortArrow column="segment" /></>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase text-center cursor-pointer select-none hover:bg-[#A3CAFC] border-r border-gray-300`, () => handleSort('segment'))}
+                      {renderResizableHeader(customerGrid, 'abandonedCheckout', <>Abandoned Checkout</>, `${customerGridHeaderPaddingClass} text-slate-900 uppercase text-center border-r border-gray-300`)}
+                      {renderResizableHeader(customerGrid, 'action', <>Action</>, `${isCompactCustomerGrid ? 'py-1.5 px-2' : 'py-2 px-2'} text-slate-900 uppercase text-center`)}
                     </tr>
                   </thead>
                   <tbody className="bg-white">
@@ -2826,8 +2887,8 @@ const closePopupCustomer = () => {
 
                       return (
                         <React.Fragment key={cust.id}>
-                          <tr className={`hover:bg-slate-50 transition-colors text-[13.5px] ${isExpanded ? 'bg-slate-50/50' : ''}`}>
-                            <td className="py-2 px-3 text-center border-r border-b border-gray-200 align-middle">
+                          <tr className={`hover:bg-slate-50 transition-colors ${customerGridRowTextClass} ${isExpanded ? 'bg-slate-50/50' : ''}`}>
+                            <td className={`${customerGridCellPaddingClass} text-center border-r border-b border-gray-200 align-middle`}>
                               <button 
                                 onClick={() => setSelectedCustomer(isExpanded ? null : cust)}
                                 className="p-1 hover:bg-gray-100 rounded text-text-secondary hover:text-indigo-600 transition-colors inline-flex items-center justify-center cursor-pointer"
@@ -2840,7 +2901,7 @@ const closePopupCustomer = () => {
                                 )}
                               </button>
                             </td>
-                            <td className="py-2 px-3 border-r border-b border-gray-200 align-middle text-center">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle text-center`}>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2855,56 +2916,82 @@ const closePopupCustomer = () => {
                                 <span className="whitespace-nowrap">View Profile</span>
                               </button>
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle`}>
                               <div 
                                 onClick={() => setSelectedCustomer(isExpanded ? null : cust)}
-                                className="text-[14px] font-bold text-text-primary hover:text-brand-primary cursor-pointer hover:underline truncate"
+                                className={customerGridNameTextClass}
                                 title={cust.name}
                               >
                                 {cust.name ? formatCustomerDisplayName(cust.name) : '-'}
                               </div>
                               <div className="text-[12px] text-text-secondary font-mono mt-0.5">{cust.id}</div>
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle">
-                              <div className="text-[14px] text-text-primary font-medium truncate" title={cust.email}>{cust.email}</div>
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle`}>
+                              <div className={customerGridEmailTextClass} title={cust.email}>{cust.email}</div>
                               <div className="text-[12px] text-text-secondary mt-0.5">{cust.phone}</div>
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] text-text-secondary font-medium truncate" title={cust.country || '-'}>
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridCountryTextClass}`} title={cust.country || '-'}>
                               {cust.country || '-'}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[13px] text-text-secondary font-medium whitespace-normal break-words leading-snug" title={cust.location || '-'}>
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridLocationTextClass}`} title={cust.location || '-'}>
                               {cust.location || '-'}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] font-semibold text-text-primary">
-                              {cust.totalOrders} orders
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} font-semibold text-text-primary`}>
+                              {getFrontendOrderCount(cust)} orders
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] font-bold text-text-primary">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} font-bold text-text-primary`}>
                               {cust.totalSpend > 0 ? formatCurrencyAmount(cust.totalSpend, cust.currencyCode) : '-'}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] text-text-secondary">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} text-text-secondary`}>
                               {cust.lastOrderDate}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] text-text-secondary whitespace-nowrap">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} text-text-secondary whitespace-nowrap`}>
                               {cust.lastLogin || '-'}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle text-[14px] text-text-secondary whitespace-nowrap">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} text-text-secondary whitespace-nowrap`}>
                               {cust.createdAt || cust.storeInfo?.joinedDate || '-'}
                             </td>
-                            <td className="py-2 px-3.5 border-r border-b border-gray-200 align-middle">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle text-center`}>
                               {(() => {
                                 const customerType = cust.customerType ?? cust.segment;
                                 const segmentVisual = renderCustomerSegmentVisual(customerType);
 
                                 return (
-                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[9px] sm:text-[10px] lg:text-[10.5px] font-bold uppercase tracking-wide whitespace-nowrap ${segmentVisual.className}`}>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full ${customerGridBadgeTextClass} font-bold uppercase tracking-wide whitespace-nowrap ${segmentVisual.className}`}>
                                     {segmentVisual.icon}
                                     <span>{customerType}</span>
                                   </span>
                                 );
                               })()}
                             </td>
-                            <td className="py-2 px-2 border-b border-gray-200 align-middle">
-                              <div className="relative inline-block text-left group">
+                            <td className={`${customerGridCellPaddingClass} border-r border-b border-gray-200 align-middle ${customerGridNumericTextClass} text-text-secondary whitespace-nowrap text-center`}>
+                              {(() => {
+                                const abandonedCheckoutCount = Number(cust.abandonedCheckoutCount ?? 0);
+
+                                if (!abandonedCheckoutCount) {
+                                  return '-';
+                                }
+
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPopupCustomer(cust);
+                                      setPopupActiveTab('abandoned');
+                                      setPopupViewMode('abandoned-only');
+                                    }}
+                                    className="mx-auto inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[8.5px] sm:text-[9px] font-bold uppercase tracking-wide whitespace-nowrap bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors cursor-pointer"
+                                    title="Open abandoned checkout details"
+                                  >
+                                    <ShoppingBag className="w-3 h-3 text-amber-500" />
+                                    <span>{abandonedCheckoutCount} Pending</span>
+                                  </button>
+                                );
+                              })()}
+                            </td>
+                            <td className={`${customerGridActionCellClass} border-b border-gray-200 align-middle text-center`}>
+                              <div className="relative flex justify-center group">
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -2974,6 +3061,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('abandoned');
+                                            setPopupViewMode('full');
                                             closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-[#ff4d6d]/5 border border-gray-100 hover:border-[#ff4d6d]/20 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
@@ -2987,6 +3075,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('refunds');
+                                            setPopupViewMode('full');
                                             closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-emerald-50/40 border border-gray-100 hover:border-emerald-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
@@ -3000,6 +3089,7 @@ const closePopupCustomer = () => {
                                           onClick={() => {
                                             setPopupCustomer(cust);
                                             setPopupActiveTab('discounts');
+                                            setPopupViewMode('full');
                                             closeQuickActionMenu();
                                           }}
                                           className="bg-slate-50 hover:bg-purple-50/40 border border-gray-100 hover:border-purple-200 rounded-xl p-2 flex items-center gap-2.5 cursor-pointer transition-all hover:scale-[1.02] duration-150"
@@ -3017,7 +3107,7 @@ const closePopupCustomer = () => {
 
                           {isExpanded && (
                             <tr className="bg-white">
-                            <td colSpan={13} className="px-2 py-1.5 border-b border-gray-200 bg-slate-50/10">
+                            <td colSpan={14} className="px-2 py-1.5 border-b border-gray-200 bg-slate-50/10">
                                 <div className="relative border border-gray-300/80 rounded-xl shadow-xxs bg-white overflow-hidden">
                                   <div className="relative">
                                     <div className="absolute left-0 top-0 bottom-0 w-[4px] rounded-r-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 opacity-85" />
@@ -3315,7 +3405,7 @@ const closePopupCustomer = () => {
                               </div>
                               <div className="rounded-xl border border-gray-200 bg-white p-2">
                                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Orders</div>
-                                <div className="mt-1 font-semibold text-text-primary">{cust.totalOrders} orders</div>
+                                <div className="mt-1 font-semibold text-text-primary">{getFrontendOrderCount(cust)} orders</div>
                               </div>
                               <div className="rounded-xl border border-gray-200 bg-white p-2">
                                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Lifetime Spend</div>
@@ -3333,6 +3423,38 @@ const closePopupCustomer = () => {
                               <div className="rounded-xl border border-gray-200 bg-white p-2">
                                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Last Login</div>
                                 <div className="mt-1 font-medium text-text-primary">{cust.lastLogin || '-'}</div>
+                              </div>
+                            </div>
+
+                            <div className="mt-2 grid grid-cols-1 gap-2 text-[12px]">
+                              <div className="rounded-xl border border-gray-200 bg-white p-2">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Abandoned Checkout</div>
+                                <div className="mt-1 font-medium text-text-primary">
+                                  {(() => {
+                                    const abandonedCheckoutCount = Number(cust.abandonedCheckoutCount ?? 0);
+
+                                    if (!abandonedCheckoutCount) {
+                                      return '-';
+                                    }
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPopupCustomer(cust);
+                                          setPopupActiveTab('abandoned');
+                                          setPopupViewMode('abandoned-only');
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[8.5px] font-bold uppercase tracking-wide whitespace-nowrap bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors cursor-pointer"
+                                        title="Open abandoned checkout details"
+                                      >
+                                        <ShoppingBag className="w-3 h-3 text-amber-500" />
+                                        <span>{abandonedCheckoutCount} Pending</span>
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
                               </div>
                             </div>
 
@@ -3634,7 +3756,7 @@ const closePopupCustomer = () => {
                 <div className="space-y-1.5 text-[12.5px]">
                   <div className="flex justify-between items-center gap-2">
                     <span className="text-text-secondary font-medium"># Orders:</span>
-                    <span className="font-bold text-text-primary">{selectedCustomer.totalOrders} orders</span>
+                    <span className="font-bold text-text-primary">{getFrontendOrderCount(selectedCustomer)} orders</span>
                   </div>
                   <div className="flex justify-between items-center gap-2">
                     <span className="text-text-secondary font-medium">Lifetime Spend:</span>
@@ -4505,14 +4627,6 @@ const closePopupCustomer = () => {
         const profileSegmentVisual = renderCustomerSegmentVisual(profileCustomer.customerType ?? profileCustomer.segment);
         const profileDisplayName = formatCustomerDisplayName(profileCustomer.name || '-');
         const profileTags = (profileCustomer.tags || []).filter(Boolean);
-        const profileAddress = [
-          profileCustomer.address1,
-          profileCustomer.address2,
-          profileCustomer.city,
-          profileCustomer.state,
-          profileCustomer.postalCode,
-          profileCustomer.country
-        ].filter(Boolean).join(', ') || profileCustomer.location || '-';
         const profileField = (label: string, value: React.ReactNode, fullWidth = false) => (
           <div className={`rounded-xl border border-gray-200 bg-white px-3 py-2.5 min-h-[72px] flex flex-col justify-center text-left ${fullWidth ? 'lg:col-span-3' : ''}`}>
             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</div>
@@ -4568,9 +4682,6 @@ const closePopupCustomer = () => {
                   {profileField('Email', profileCustomer.email)}
                   {profileField('Phone', profileCustomer.phone)}
                   {profileField('Verified Email', profileCustomer.verifiedEmail === undefined ? '-' : profileCustomer.verifiedEmail ? 'Yes' : 'No')}
-                  {profileField('Address', profileAddress, true)}
-                  {profileField('Address 1', profileCustomer.address1 || '-')}
-                  {profileField('Address 2', profileCustomer.address2 || '-')}
                   {profileField('City', profileCustomer.city || '-')}
                   {profileField('State', profileCustomer.state || '-')}
                   {profileField('Postal Code', profileCustomer.postalCode || '-')}
@@ -4578,7 +4689,7 @@ const closePopupCustomer = () => {
                   {profileField('Country Code', profileCustomer.countryCode || '-')}
                   {profileField('Customer Type', profileCustomer.customerType ?? profileCustomer.segment)}
                   {profileField('Segment Label', profileSegmentVisual.label)}
-                  {profileField('# Orders', `${profileCustomer.totalOrders} orders`)}
+                  {profileField('# Orders', `${getFrontendOrderCount(profileCustomer)} orders`)}
                   {profileField('Lifetime Spend', profileCustomer.totalSpend > 0 ? formatCurrencyAmount(profileCustomer.totalSpend, profileCustomer.currencyCode) : '-')}
                   {profileField('Last Order Date', profileCustomer.lastOrderDate || '-')}
                   {profileField('Last Login', profileCustomer.lastLogin || '-')}
@@ -4659,47 +4770,48 @@ const closePopupCustomer = () => {
                 </button>
               </div>
 
-              {/* Tabs Section */}
-              <div className="px-6 flex gap-6 border-b border-border-subtle/70 bg-white text-sm">
-                {/* Abandoned Checkout Tab */}
-                <button
-                  onClick={() => setPopupActiveTab('abandoned')}
-                  className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
-                    popupActiveTab === 'abandoned'
-                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
-                  }`}
-                >
-                  <ShoppingBag className="w-4 h-4 text-[#ff5a67]" />
-                  <span>Abandoned Checkout</span>
-                </button>
+              {popupViewMode === 'full' && (
+                <div className="px-6 flex gap-6 border-b border-border-subtle/70 bg-white text-sm">
+                  {/* Abandoned Checkout Tab */}
+                  <button
+                    onClick={() => setPopupActiveTab('abandoned')}
+                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                      popupActiveTab === 'abandoned'
+                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                    }`}
+                  >
+                    <ShoppingBag className="w-4 h-4 text-[#ff5a67]" />
+                    <span>Abandoned Checkout</span>
+                  </button>
 
-                {/* Refund Status Tab */}
-                <button
-                  onClick={() => setPopupActiveTab('refunds')}
-                  className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
-                    popupActiveTab === 'refunds'
-                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
-                  }`}
-                >
-                  <RefreshCw className="w-4 h-4 text-emerald-500" />
-                  <span>Refund Status</span>
-                </button>
+                  {/* Refund Status Tab */}
+                  <button
+                    onClick={() => setPopupActiveTab('refunds')}
+                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                      popupActiveTab === 'refunds'
+                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                    }`}
+                  >
+                    <RefreshCw className="w-4 h-4 text-emerald-500" />
+                    <span>Refund Status</span>
+                  </button>
 
-                {/* Applied Discount Tab */}
-                <button
-                  onClick={() => setPopupActiveTab('discounts')}
-                  className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
-                    popupActiveTab === 'discounts'
-                      ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                      : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
-                  }`}
-                >
-                  <Ticket className="w-4 h-4 text-[#8b5cf6]" />
-                  <span>Applied Discount</span>
-                </button>
-              </div>
+                  {/* Applied Discount Tab */}
+                  <button
+                    onClick={() => setPopupActiveTab('discounts')}
+                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                      popupActiveTab === 'discounts'
+                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                    }`}
+                  >
+                    <Ticket className="w-4 h-4 text-[#8b5cf6]" />
+                    <span>Applied Discount</span>
+                  </button>
+                </div>
+              )}
 
               {/* Content Grid Area (Matching columns, styling, and data fields in Image 2 & 3) */}
           <div className="flex-1 p-6 min-h-[300px]">

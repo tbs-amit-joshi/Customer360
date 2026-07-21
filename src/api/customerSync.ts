@@ -86,6 +86,9 @@ interface ShopifyCustomerDto {
   defaultAddress?: ShopifyAddressDto | null;
   addresses?: ShopifyAddressDto[] | null;
   orders?: ShopifyOrderDto[] | null;
+  abandonedCheckoutCount?: number | string | null;
+  abandonedCheckoutsCount?: number | string | null;
+  abandonedCheckouts?: ShopifyAbandonedCheckoutDto[] | null;
 }
 
 interface ShopifyRefundLineItemDto {
@@ -454,6 +457,24 @@ const getLocationDisplay = (customer: ShopifyCustomerDto): string => {
   return parts.length > 0 ? parts.join(', ') : '-';
 };
 
+const getAbandonedCheckoutCount = (customer: ShopifyCustomerDto): number | undefined => {
+  const directCount = parseNumber(customer.abandonedCheckoutCount);
+  if (directCount !== undefined) {
+    return directCount;
+  }
+
+  const pluralCount = parseNumber(customer.abandonedCheckoutsCount);
+  if (pluralCount !== undefined) {
+    return pluralCount;
+  }
+
+  if (Array.isArray(customer.abandonedCheckouts)) {
+    return customer.abandonedCheckouts.length;
+  }
+
+  return undefined;
+};
+
 const mapProductsFromOrders = (orders: ShopifyOrderDto[]): CustomerProduct[] => {
   const products: CustomerProduct[] = [];
 
@@ -568,7 +589,6 @@ const buildCustomerSyncEndpoint = (requestPath: string, apiBaseUrl: string): str
 
 const buildCustomerSyncQuery = (options: {
   shopDomain: string;
-  storeId: string;
   type?: 'excel' | 'chart';
   dateFilter?: string;
   startDate?: string;
@@ -601,10 +621,6 @@ const buildCustomerSyncQuery = (options: {
 
   if (options.shopDomain) {
     query.set('shopDomain', options.shopDomain);
-  }
-
-  if (options.storeId) {
-    query.set('storeId', options.storeId);
   }
 
   if (options.type?.trim()) {
@@ -1238,13 +1254,11 @@ const isAbandonedCheckoutApiEnvelope = (
 export async function fetchCustomer360Customers(options: CustomerSyncOptions = {}): Promise<CustomerSyncPageResult> {
   const apiBaseUrl = normalizeApiUrl(options.apiBaseUrl || readApiBaseUrl());
   const shopDomain = options.shopDomain?.trim() || DEFAULT_SHOP_DOMAIN;
-  const storeId = options.storeId?.trim() || DEFAULT_STORE_ID;
   const pageNo = options.pageNo ?? DEFAULT_PAGE_NO;
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
 
   const query = buildCustomerSyncQuery({
     shopDomain,
-    storeId,
     customerType: options.customerType,
     customerNameOrId: options.customerNameOrId,
     emailOrPhone: options.emailOrPhone,
@@ -1303,6 +1317,7 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     const location = getLocationDisplay(customer);
     const leadStatus = getLeadStatus(orderCount);
     const customerType = normalizeCustomerType(customer.customerType) ?? getCustomerSegment(customer, orderCount, totalSpend);
+    const abandonedCheckoutCount = getAbandonedCheckoutCount(customer);
 
   return {
     id: customerId,
@@ -1332,6 +1347,7 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
       leadStatus,
       segment: customerType,
       customerType,
+      abandonedCheckoutCount,
       orders: orderSummary.orders,
       products,
       complaints: [],
@@ -1612,11 +1628,9 @@ export async function exportCustomer360Customers(options?: CustomerExportOptions
 export async function exportCustomer360Customers(options: CustomerExportOptions = {}): Promise<string | CustomerChartDetails | null> {
   const apiBaseUrl = normalizeApiUrl(options.apiBaseUrl || readApiBaseUrl());
   const shopDomain = options.shopDomain?.trim() || DEFAULT_SHOP_DOMAIN;
-  const storeId = options.storeId?.trim() || DEFAULT_STORE_ID;
   const requestType = options.type === 'chart' ? 'chart' : 'excel';
   const query = buildCustomerSyncQuery({
     shopDomain,
-    storeId,
     type: requestType,
     dateFilter: options.dateFilter,
     startDate: options.startDate,

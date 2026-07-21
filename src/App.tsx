@@ -492,7 +492,7 @@ export default function App() {
           </header>
 
           <main id="settings-viewport-content" className="flex-1 overflow-y-auto bg-bg-viewport">
-            <div className="w-full max-w-full mx-auto px-6 md:px-8 py-6 md:py-8">
+            <div className="w-full max-w-full mx-auto px-6 pt-2 pb-6 md:px-8 md:pt-3 md:pb-8">
               <SettingsView
                 settings={settings}
                 onUpdateSettings={(newSettings) => {

@@ -152,6 +152,7 @@ export interface Customer {
   totalOrders: number;
   totalSpend: number;
   lastOrderDate: string;
+  abandonedCheckoutCount?: number;
   leadNo: string;
   leadStatus: LeadStatus;
   segment: CustomerSegment;
