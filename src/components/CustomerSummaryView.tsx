@@ -4,6 +4,7 @@ import {
   X, CheckSquare, Settings, Check, CreditCard, ShoppingBag, 
   Ticket, Gift, HelpCircle, ExternalLink, ChevronDown, ChevronRight,
   Mail, ChevronLeft, Edit, Eye, ChevronUp, RefreshCw, Users,
+  Clock,
   Calendar, Sparkles, TrendingUp, LayoutGrid, Star
 } from 'lucide-react';
 import {
@@ -306,6 +307,8 @@ interface CustomerSummaryViewProps {
     | 'lastLoginTo'
     | 'createdDateFrom'
     | 'createdDateTo'
+    | 'deliveryFrom'
+    | 'deliveryTo'
     | 'fulfillmentStatus'
     | 'deliveryStatus'
     | 'productName'
@@ -628,6 +631,61 @@ function renderStatusBadge(
   return <span className={`${className} ${meta.className}`}>{meta.label}</span>;
 }
 
+function formatDeliveryDate(value?: string | null): string {
+  if (!value) {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+    }
+
+    return trimmed.split('T')[0];
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return trimmed;
+  }
+
+  return parsed.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+function renderDeliveryStatusCell(
+  deliveryStatus?: string | null,
+  deliveredAt?: string | null,
+  align: 'left' | 'center' = 'left'
+) {
+  const deliveryDate = formatDeliveryDate(deliveredAt);
+
+  return (
+    <div className={`flex flex-row flex-wrap items-center gap-1.5 ${align === 'center' ? 'justify-center' : 'justify-start'}`}>
+      {renderStatusBadge('delivery', deliveryStatus, 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border')}
+      {deliveryDate && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600 shadow-xxs whitespace-nowrap">
+          <Clock className="w-3 h-3 text-slate-400" />
+          <span>{deliveryDate}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface CustomerSegmentVisual {
   className: string;
   icon: React.ReactNode;
@@ -717,6 +775,8 @@ export default function CustomerSummaryView({
 
   // Analytics Cards states
   const [chartDetails, setChartDetails] = useState<CustomerChartDetails | null>(null);
+  const [isCard1Loading, setIsCard1Loading] = useState(true);
+  const [isOtherCardsLoading, setIsOtherCardsLoading] = useState(true);
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
 
   // Date range filter states
@@ -837,10 +897,15 @@ const closePopupCustomer = () => {
     const hasCustomDates = customStartValue.length > 0 && customEndValue.length > 0;
 
     if (isCustomRange && !hasCustomDates) {
+      setIsCard1Loading(false);
+      setIsOtherCardsLoading(false);
       return () => {
         controller.abort();
       };
     }
+
+    setIsCard1Loading(true);
+    setIsOtherCardsLoading(true);
 
     void (async () => {
       try {
@@ -867,6 +932,11 @@ const closePopupCustomer = () => {
         if (isActive) {
           setChartDetails(null);
         }
+      } finally {
+        if (isActive) {
+          setIsCard1Loading(false);
+          setIsOtherCardsLoading(false);
+        }
       }
     })();
 
@@ -875,9 +945,6 @@ const closePopupCustomer = () => {
       controller.abort();
     };
   }, [customEnd, customStart, debouncedDate.dateRange]);
-
-  const isCard1Loading = false;
-  const isOtherCardsLoading = false;
 
   // 1. Get exact start/end dates for calculations based on debounced filter values
   const filterRange = useMemo(() => {
@@ -1170,6 +1237,8 @@ const closePopupCustomer = () => {
   const [draftFilterLastLoginTo, setDraftFilterLastLoginTo] = useState('');
   const [draftFilterCreatedDateFrom, setDraftFilterCreatedDateFrom] = useState('');
   const [draftFilterCreatedDateTo, setDraftFilterCreatedDateTo] = useState('');
+  const [draftFilterDeliveryFrom, setDraftFilterDeliveryFrom] = useState('');
+  const [draftFilterDeliveryTo, setDraftFilterDeliveryTo] = useState('');
   const [draftFilterFulfillmentStatus, setDraftFilterFulfillmentStatus] = useState('All');
   const [draftFilterDeliveryStatus, setDraftFilterDeliveryStatus] = useState('All');
   const [draftFilterProductName, setDraftFilterProductName] = useState('');
@@ -1191,6 +1260,8 @@ const closePopupCustomer = () => {
   const [filterLastLoginTo, setFilterLastLoginTo] = useState('');
   const [filterCreatedDateFrom, setFilterCreatedDateFrom] = useState('');
   const [filterCreatedDateTo, setFilterCreatedDateTo] = useState('');
+  const [filterDeliveryFrom, setFilterDeliveryFrom] = useState('');
+  const [filterDeliveryTo, setFilterDeliveryTo] = useState('');
   const [filterFulfillmentStatus, setFilterFulfillmentStatus] = useState('All');
   const [filterDeliveryStatus, setFilterDeliveryStatus] = useState('All');
   const [filterProductName, setFilterProductName] = useState('');
@@ -1236,6 +1307,8 @@ const closePopupCustomer = () => {
     setFilterLastLoginTo(draftFilterLastLoginTo);
     setFilterCreatedDateFrom(draftFilterCreatedDateFrom);
     setFilterCreatedDateTo(draftFilterCreatedDateTo);
+    setFilterDeliveryFrom(draftFilterDeliveryFrom);
+    setFilterDeliveryTo(draftFilterDeliveryTo);
     setFilterFulfillmentStatus(draftFilterFulfillmentStatus);
     setFilterDeliveryStatus(draftFilterDeliveryStatus);
     setFilterProductName(draftFilterProductName);
@@ -1261,6 +1334,8 @@ const closePopupCustomer = () => {
     setDraftFilterLastLoginTo('');
     setDraftFilterCreatedDateFrom('');
     setDraftFilterCreatedDateTo('');
+    setDraftFilterDeliveryFrom('');
+    setDraftFilterDeliveryTo('');
     setDraftFilterFulfillmentStatus('All');
     setDraftFilterDeliveryStatus('All');
     setDraftFilterProductName('');
@@ -1282,6 +1357,8 @@ const closePopupCustomer = () => {
     setFilterLastLoginTo('');
     setFilterCreatedDateFrom('');
     setFilterCreatedDateTo('');
+    setFilterDeliveryFrom('');
+    setFilterDeliveryTo('');
     setFilterFulfillmentStatus('All');
     setFilterDeliveryStatus('All');
     setFilterProductName('');
@@ -1314,6 +1391,8 @@ const closePopupCustomer = () => {
       lastLoginTo: filterLastLoginTo.trim(),
       createdDateFrom: filterCreatedDateFrom.trim(),
       createdDateTo: filterCreatedDateTo.trim(),
+      deliveryFrom: filterDeliveryFrom.trim(),
+      deliveryTo: filterDeliveryTo.trim(),
       fulfillmentStatus: filterFulfillmentStatus.trim(),
       deliveryStatus: filterDeliveryStatus.trim(),
       productName: filterProductName.trim(),
@@ -1336,6 +1415,8 @@ const closePopupCustomer = () => {
     filterLastLoginTo,
     filterCreatedDateFrom,
     filterCreatedDateTo,
+    filterDeliveryFrom,
+    filterDeliveryTo,
     filterFulfillmentStatus,
     filterDeliveryStatus,
     filterProductName,
@@ -1481,6 +1562,13 @@ const closePopupCustomer = () => {
         return false;
       }
 
+      if ((filterDeliveryFrom.trim() !== '' || filterDeliveryTo.trim() !== '')) {
+        const hasMatchingDeliveryDate = cust.orders?.some(order => isDateWithinRange(order.deliveredAt, filterDeliveryFrom, filterDeliveryTo));
+        if (!hasMatchingDeliveryDate) {
+          return false;
+        }
+      }
+
       // 6. Individual Total Spend filter
       if (filterMinSpend.trim() !== '') {
         const minSpend = parseSpendFilterValue(filterMinSpend);
@@ -1571,6 +1659,8 @@ const closePopupCustomer = () => {
     filterLastLoginTo,
     filterCreatedDateFrom,
     filterCreatedDateTo,
+    filterDeliveryFrom,
+    filterDeliveryTo,
     filterOrderId,
     filterOrderStatus,
     filterPaymentStatus,
@@ -1625,6 +1715,9 @@ const closePopupCustomer = () => {
     if (filterPaymentStatus !== 'All') {
       const q = normalizeStatusCode(filterPaymentStatus);
       items = items.filter(o => normalizeStatusCode(o.paymentStatus) === q);
+    }
+    if (filterDeliveryFrom.trim() !== '' || filterDeliveryTo.trim() !== '') {
+      items = items.filter(o => isDateWithinRange(o.deliveredAt, filterDeliveryFrom, filterDeliveryTo));
     }
     if (filterProductName.trim() !== '') {
       const q = normalizeSearchText(filterProductName);
@@ -2764,6 +2857,23 @@ const closePopupCustomer = () => {
                       </div>
                     </div>
                     <div className="min-w-0" style={{ order: 3 }}>
+                      <label className={compactFilterLabelClass}>Delivery Date</label>
+                      <div className="grid grid-cols-2 gap-1">
+                        <input
+                          type="date"
+                          value={draftFilterDeliveryFrom}
+                          onChange={(e) => setDraftFilterDeliveryFrom(e.target.value)}
+                          className={compactDateInputClass}
+                        />
+                        <input
+                          type="date"
+                          value={draftFilterDeliveryTo}
+                          onChange={(e) => setDraftFilterDeliveryTo(e.target.value)}
+                          className={compactDateInputClass}
+                        />
+                      </div>
+                    </div>
+                    <div className="min-w-0" style={{ order: 3 }}>
                       <label className={compactFilterLabelClass}>Fulfillment Status</label>
                       <select
                         value={draftFilterFulfillmentStatus}
@@ -3137,7 +3247,7 @@ const closePopupCustomer = () => {
                                               {renderResizableHeader(compactOrderGrid, 'orderDate', <>Order Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold font-sans text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'orderStatus', <>Fulfillment status</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
-                                              {renderResizableHeader(compactOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
+                                              {renderResizableHeader(compactOrderGrid, 'deliveryStatus', <>Delivery Status / Date</>, 'py-1.5 px-3 text-left border-r border-gray-300 font-bold text-slate-900')}
                                               {renderResizableHeader(compactOrderGrid, 'totalAmount', <>Total Amount</>, 'py-1.5 px-3 text-left font-bold text-slate-900 font-sans')}
                                             </tr>
                                           </thead>
@@ -3204,7 +3314,7 @@ const closePopupCustomer = () => {
 
                                                   {/* Delivery Status */}
                                                   <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-left">
-                                                    {renderStatusBadge('delivery', o.deliveryStatus, 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border')}
+                                                    {renderDeliveryStatusCell(o.deliveryStatus, o.deliveredAt, 'left')}
                                                   </td>
 
                                                   {/* Total Amount */}
@@ -3507,9 +3617,7 @@ const closePopupCustomer = () => {
                                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${getStatusBadgeMeta('order', order.status)?.className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                                   {(getStatusBadgeMeta('order', order.status)?.label || order.status || '-')}
                                                 </span>
-                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border tracking-wider ${getStatusBadgeMeta('delivery', order.deliveryStatus)?.className || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                                                  {(getStatusBadgeMeta('delivery', order.deliveryStatus)?.label || order.deliveryStatus || '-')}
-                                                </span>
+                                                {renderDeliveryStatusCell(order.deliveryStatus, order.deliveredAt, 'left')}
                                               </div>
                                               <div className="mt-2 text-[11px] text-text-secondary">
                                                 {orderName}
@@ -4014,7 +4122,7 @@ const closePopupCustomer = () => {
                     {renderResizableHeader(detailedOrderGrid, 'orderStatus', <>Fulfillment status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'paymentStatus', <>Payment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'fulfillmentStatus', <>Fulfillment Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
-                    {renderResizableHeader(detailedOrderGrid, 'deliveryStatus', <>Delivery Status</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
+                    {renderResizableHeader(detailedOrderGrid, 'deliveryStatus', <>Delivery Status / Date</>, 'py-1.5 px-3 text-center border-r border-gray-300 font-bold text-slate-900')}
                     {renderResizableHeader(detailedOrderGrid, 'totalAmount', <>Total Amount</>, 'py-1.5 px-3 text-right font-bold text-slate-900')}
                   </tr>
                 </thead>
@@ -4096,7 +4204,7 @@ const closePopupCustomer = () => {
 
                             {/* Delivery Status */}
                             <td className="py-1.5 px-3 border-r border-b border-gray-200 align-middle text-center">
-                              {renderStatusBadge('delivery', o.deliveryStatus)}
+                              {renderDeliveryStatusCell(o.deliveryStatus, o.deliveredAt, 'center')}
                             </td>
 
                             {/* Total Amount */}

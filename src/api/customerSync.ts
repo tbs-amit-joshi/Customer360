@@ -55,6 +55,7 @@ interface ShopifyOrderDto {
   id?: string | null;
   name?: string | null;
   createdAt?: string | null;
+  deliveredAt?: string | null;
   displayFinancialStatus?: string | null;
   paymentGatewayNames?: string[] | null;
   displayFulfillmentStatus?: string | null;
@@ -62,8 +63,10 @@ interface ShopifyOrderDto {
   totalDiscountsSet?: ShopifyAbandonedCheckoutMoneyDto | null;
   refunds?: ShopifyOrderRefundDto[] | null;
   discountApplications?: ShopifyOrderDiscountApplicationDto[] | null;
-  lineItems?: ShopifyOrderLineItemDto[] | null;  fulfillments?: {
+  lineItems?: ShopifyOrderLineItemDto[] | null;
+  fulfillments?: {
     displayStatus?: string | null;
+    deliveredAt?: string | null;
   }[] | null;
 }
 
@@ -274,6 +277,8 @@ export interface CustomerSyncOptions {
   lastLoginTo?: string;
   createdDateFrom?: string;
   createdDateTo?: string;
+  deliveryFrom?: string;
+  deliveryTo?: string;
   fulfillmentStatus?: string;
   deliveryStatus?: string;
   productName?: string;
@@ -552,12 +557,17 @@ const mapOrders = (orders: ShopifyOrderDto[]): { orders: Customer['orders']; las
         'delivery',
         order.fulfillments?.find((fulfillment) => normalizeStatusCode(fulfillment?.displayStatus))?.displayStatus
       );
+      const deliveredAt =
+        parseDateString(order.deliveredAt) ||
+        parseDateString(order.fulfillments?.find((fulfillment) => normalizeStatusCode(fulfillment?.displayStatus))?.deliveredAt) ||
+        '';
       const orderId = getShopifyNumericId(order.id) || orderName;
 
       return {
         orderId,
         name: orderName,
         date: createdDate || parseDateString(order.createdAt) || '-',
+        deliveredAt,
         amount: totalAmount,
         status: orderStatus,
         paymentStatus,
@@ -608,6 +618,8 @@ const buildCustomerSyncQuery = (options: {
   lastLoginTo?: string;
   createdDateFrom?: string;
   createdDateTo?: string;
+  deliveryFrom?: string;
+  deliveryTo?: string;
   fulfillmentStatus?: string;
   deliveryStatus?: string;
   productName?: string;
@@ -705,6 +717,14 @@ const buildCustomerSyncQuery = (options: {
 
   if (options.createdDateTo?.trim()) {
     query.set('CreatedDateTo', options.createdDateTo.trim());
+  }
+
+  if (options.deliveryFrom?.trim()) {
+    query.set('deliveryFrom', options.deliveryFrom.trim());
+  }
+
+  if (options.deliveryTo?.trim()) {
+    query.set('deliveryTo', options.deliveryTo.trim());
   }
 
   if (options.fulfillmentStatus?.trim()) {
@@ -1276,6 +1296,8 @@ export async function fetchCustomer360Customers(options: CustomerSyncOptions = {
     lastLoginTo: options.lastLoginTo,
     createdDateFrom: options.createdDateFrom,
     createdDateTo: options.createdDateTo,
+    deliveryFrom: options.deliveryFrom,
+    deliveryTo: options.deliveryTo,
     fulfillmentStatus: options.fulfillmentStatus,
     deliveryStatus: options.deliveryStatus,
     productName: options.productName,

@@ -52,3 +52,16 @@
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.animate-loading-bar {
+  animation: loading-bar 1.15s ease-in-out infinite;
+}

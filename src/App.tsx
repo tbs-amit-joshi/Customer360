@@ -35,6 +35,8 @@ type CustomerQueryFilters = Pick<
   | 'lastLoginTo'
   | 'createdDateFrom'
   | 'createdDateTo'
+  | 'deliveryFrom'
+  | 'deliveryTo'
   | 'fulfillmentStatus'
   | 'deliveryStatus'
   | 'productName'
@@ -59,6 +61,8 @@ const EMPTY_CUSTOMER_QUERY_FILTERS: CustomerQueryFilters = {
   lastLoginTo: '',
   createdDateFrom: '',
   createdDateTo: '',
+  deliveryFrom: '',
+  deliveryTo: '',
   fulfillmentStatus: 'All',
   deliveryStatus: 'All',
   productName: '',
@@ -67,6 +71,75 @@ const EMPTY_CUSTOMER_QUERY_FILTERS: CustomerQueryFilters = {
 
 const DEFAULT_CUSTOMER_PAGE_NO = 1;
 const DEFAULT_CUSTOMER_PAGE_SIZE = 10;
+
+const canUseBrowserStorage = (): boolean => {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+};
+
+const readStoredJson = <T,>(key: string, fallback: T): T => {
+  if (!canUseBrowserStorage()) {
+    return fallback;
+  }
+
+  try {
+    const saved = window.localStorage.getItem(key);
+    if (!saved) {
+      return fallback;
+    }
+
+    return JSON.parse(saved) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+const readStoredValue = (key: string): string | null => {
+  if (!canUseBrowserStorage()) {
+    return null;
+  }
+
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredJson = (key: string, value: unknown) => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage quota and privacy mode errors.
+  }
+};
+
+const writeStoredValue = (key: string, value: string) => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage errors during migration cleanup.
+  }
+};
+
+const removeStoredValue = (key: string) => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage errors during migration cleanup.
+  }
+};
 
 const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFilters): boolean => {
   const keys: (keyof CustomerQueryFilters)[] = [
@@ -87,6 +160,8 @@ const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFil
     'lastLoginTo',
     'createdDateFrom',
     'createdDateTo',
+    'deliveryFrom',
+    'deliveryTo',
     'fulfillmentStatus',
     'deliveryStatus',
     'productName',
@@ -96,35 +171,88 @@ const isSameCustomerQueryFilters = (a: CustomerQueryFilters, b: CustomerQueryFil
   return keys.every((key) => `${a[key] ?? ''}` === `${b[key] ?? ''}`);
 };
 
+const SETTINGS_ROUTE_QUERY_KEY = 'view';
+const SETTINGS_ROUTE_QUERY_VALUE = 'settings';
+const SETTINGS_TAB_QUERY_KEY = 'settingsTab';
+
+const isSettingsRouteFromUrl = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get(SETTINGS_ROUTE_QUERY_KEY) === SETTINGS_ROUTE_QUERY_VALUE || params.has(SETTINGS_TAB_QUERY_KEY);
+};
+
+const syncSettingsRouteInUrl = (settingsTab?: string) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set(SETTINGS_ROUTE_QUERY_KEY, SETTINGS_ROUTE_QUERY_VALUE);
+  nextUrl.searchParams.set(SETTINGS_TAB_QUERY_KEY, settingsTab || 'notifications');
+  window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+};
+
+const clearSettingsRouteFromUrl = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.delete(SETTINGS_ROUTE_QUERY_KEY);
+  nextUrl.searchParams.delete(SETTINGS_TAB_QUERY_KEY);
+  window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+};
+
+function BrandLogoButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-3 text-left cursor-pointer group"
+      aria-label="Reload Customer 360"
+      title="Reload Customer 360"
+    >
+      <span className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-brand-primary/15 bg-white text-brand-primary shadow-sm transition-transform group-hover:-translate-y-0.5">
+        <span className="absolute inset-1 rounded-[14px] bg-brand-bg-active/70" />
+        <span className="relative text-[11px] font-black tracking-[0.2em] leading-none">360</span>
+      </span>
+      <span className="flex flex-col leading-tight">
+        <span className="text-sm font-extrabold text-text-primary tracking-tight">Customer 360</span>
+      </span>
+    </button>
+  );
+}
+
 export default function App() {
   // Inter-tab parameter passing (e.g. looking up a specific customer by name)
   const [passedCustomerName, setPassedCustomerName] = useState<string | undefined>(undefined);
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(() => isSettingsRouteFromUrl());
   const [customerRefreshToken, setCustomerRefreshToken] = useState(0);
   const [customerTypeFilter, setCustomerTypeFilter] = useState<'All' | CustomerSegment>('All');
   const [customerQueryFilters, setCustomerQueryFilters] = useState<CustomerQueryFilters>(EMPTY_CUSTOMER_QUERY_FILTERS);
 
   // Run data migration to guarantee updated data (Emma Watson SH-90412 and slate gray theme) on first boot
   const migration_version = 'v7';
-  if (typeof window !== 'undefined' && localStorage.getItem('tech_crm_migration_v7') !== migration_version) {
-    localStorage.removeItem('tech_crm_leads');
-    localStorage.removeItem('tech_crm_complaints');
-    localStorage.removeItem('tech_crm_campaigns');
-    localStorage.removeItem('tech_crm_templates');
-    localStorage.removeItem('tech_crm_logs');
-    localStorage.removeItem('tech_crm_settings');
-    localStorage.setItem('tech_crm_migration_v7', migration_version);
+  if (readStoredValue('tech_crm_migration_v7') !== migration_version) {
+    removeStoredValue('tech_crm_leads');
+    removeStoredValue('tech_crm_complaints');
+    removeStoredValue('tech_crm_campaigns');
+    removeStoredValue('tech_crm_templates');
+    removeStoredValue('tech_crm_logs');
+    removeStoredValue('tech_crm_settings');
+    writeStoredValue('tech_crm_migration_v7', migration_version);
   }
 
   // Core App states, loaded from localStorage or fallback to Seed Data
   const [leads, setLeads] = useState<Lead[]>(() => {
-    const saved = localStorage.getItem('tech_crm_leads');
-    return saved ? JSON.parse(saved) : INITIAL_LEADS;
+    return readStoredJson<Lead[]>('tech_crm_leads', INITIAL_LEADS);
   });
 
   const [complaints, setComplaints] = useState<Complaint[]>(() => {
-    const saved = localStorage.getItem('tech_crm_complaints');
-    return saved ? JSON.parse(saved) : INITIAL_COMPLAINTS;
+    return readStoredJson<Complaint[]>('tech_crm_complaints', INITIAL_COMPLAINTS);
   });
 
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -136,13 +264,11 @@ export default function App() {
   const [isRefreshingCustomerData, setIsRefreshingCustomerData] = useState(false);
 
   const [logs, setLogs] = useState<ActivityLog[]>(() => {
-    const saved = localStorage.getItem('tech_crm_logs');
-    return saved ? JSON.parse(saved) : INITIAL_ACTIVITY_LOGS;
+    return readStoredJson<ActivityLog[]>('tech_crm_logs', INITIAL_ACTIVITY_LOGS);
   });
 
   const [settings, setSettings] = useState<SettingsState>(() => {
-    const saved = localStorage.getItem('tech_crm_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+    return readStoredJson<SettingsState>('tech_crm_settings', INITIAL_SETTINGS);
   });
 
   // Success Toast state
@@ -154,33 +280,61 @@ export default function App() {
   };
 
   const [shopDomain, setShopDomain] = useState<string | null>(null);
+  const handleReloadSite = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     const params = new URLSearchParams(window.location.search);
-    const shop = params.get("shop") || localStorage.getItem("shopDomain");
+    const shop = params.get("shop") || readStoredValue("shopDomain");
 
     if (shop) {
-      localStorage.setItem("shopDomain", shop);
+      try {
+        window.localStorage.setItem("shopDomain", shop);
+      } catch {
+        // Ignore storage errors and keep the in-memory value.
+      }
       setShopDomain(shop);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handlePopState = () => {
+      setIsSettingsOpen(isSettingsRouteFromUrl());
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, []);
 
 
   // Sync to localStorage on alterations
   useEffect(() => {
-    localStorage.setItem('tech_crm_leads', JSON.stringify(leads));
+    writeStoredJson('tech_crm_leads', leads);
   }, [leads]);
 
   useEffect(() => {
-    localStorage.setItem('tech_crm_complaints', JSON.stringify(complaints));
+    writeStoredJson('tech_crm_complaints', complaints);
   }, [complaints]);
 
   useEffect(() => {
-    localStorage.setItem('tech_crm_logs', JSON.stringify(logs));
+    writeStoredJson('tech_crm_logs', logs);
   }, [logs]);
 
   useEffect(() => {
-    localStorage.setItem('tech_crm_settings', JSON.stringify(settings));
+    writeStoredJson('tech_crm_settings', settings);
   }, [settings]);
 
   const loadCustomers = useCallback(async (
@@ -213,6 +367,8 @@ export default function App() {
         lastLoginTo: customerQueryFilters.lastLoginTo,
         createdDateFrom: customerQueryFilters.createdDateFrom,
         createdDateTo: customerQueryFilters.createdDateTo,
+        deliveryFrom: customerQueryFilters.deliveryFrom,
+        deliveryTo: customerQueryFilters.deliveryTo,
         fulfillmentStatus: customerQueryFilters.fulfillmentStatus,
         deliveryStatus: customerQueryFilters.deliveryStatus,
         productName: customerQueryFilters.productName,
@@ -260,6 +416,8 @@ export default function App() {
     customerQueryFilters.lastLoginTo,
     customerQueryFilters.createdDateFrom,
     customerQueryFilters.createdDateTo,
+    customerQueryFilters.deliveryFrom,
+    customerQueryFilters.deliveryTo,
     customerQueryFilters.fulfillmentStatus,
     customerQueryFilters.deliveryStatus,
     customerQueryFilters.productName,
@@ -287,6 +445,8 @@ export default function App() {
       lastLoginTo: filters.lastLoginTo ?? '',
       createdDateFrom: filters.createdDateFrom ?? '',
       createdDateTo: filters.createdDateTo ?? '',
+      deliveryFrom: filters.deliveryFrom ?? '',
+      deliveryTo: filters.deliveryTo ?? '',
       fulfillmentStatus: filters.fulfillmentStatus ?? 'All',
       deliveryStatus: filters.deliveryStatus ?? 'All',
       productName: filters.productName ?? '',
@@ -320,6 +480,7 @@ export default function App() {
     } finally {
       setIsRefreshingCustomerData(false);
       setIsSettingsOpen(false);
+      clearSettingsRouteFromUrl();
     }
   }, [isRefreshingCustomerData, loadCustomers, customerPageNo, customerPageSize]);
 
@@ -473,17 +634,7 @@ export default function App() {
         <div className="min-h-screen flex flex-col bg-bg-viewport">
           <header className="bg-bg-card border-b border-border-subtle sticky top-0 z-40 w-full flex flex-col">
             <div className="px-6 py-3.5 flex items-center justify-between border-b border-border-subtle/50 bg-bg-neutral/20">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-8 rounded-lg bg-brand-primary text-white font-bold flex items-center justify-center text-xs shadow-sm ring-2 ring-brand-primary/10">
-                  360
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-extrabold text-text-primary tracking-tight">System Settings</span>
-                  <span className="text-[10px] bg-brand-bg-active text-brand-primary font-bold px-2 py-0.5 rounded-full border border-brand-primary/10">
-                    Customer 360
-                  </span>
-                </div>
-              </div>
+              <BrandLogoButton onClick={handleReloadSite} />
 
               <div className="flex items-center gap-3">
                 <button
@@ -531,19 +682,15 @@ export default function App() {
             {/* Top Header Row */}
             <div className="px-6 py-3.5 flex items-center justify-between border-b border-border-subtle/50 bg-bg-neutral/20">
               {/* Brand/Store Info */}
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-8 rounded-lg bg-brand-primary text-white font-bold flex items-center justify-center text-xs shadow-sm ring-2 ring-brand-primary/10">
-                  360
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-extrabold text-text-primary tracking-tight">Customer 360</span>
-                </div>
-              </div>
+              <BrandLogoButton onClick={handleReloadSite} />
 
               {/* Right Profile & Context replaced with Settings button */}
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setIsSettingsOpen(true)}
+                  onClick={() => {
+                    setIsSettingsOpen(true);
+                    syncSettingsRouteInUrl('notifications');
+                  }}
                   className="p-2.5 text-text-secondary hover:text-brand-primary hover:bg-brand-bg-active border border-border-subtle/40 rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-xs bg-bg-card hover:border-brand-primary/20"
                   title="Open Settings"
                   id="settings-trigger-button"

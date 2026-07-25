@@ -29,6 +29,7 @@ import {
   type CampaignAutomationApiRecord,
   type CampaignAutomationSaveRequest,
 } from '../api/campaignAutomation';
+import CustomerDataLoader from './CustomerDataLoader';
 
 interface CampaignTemplate {
   id: string;
@@ -226,7 +227,7 @@ function mapRegistryChannelTypeToApi(channelType?: 'Email' | 'Whatsapp' | ''): s
 }
 
 function mapEmailTemplateToCampaignTemplate(template: EmailTemplateApiRecord, index: number): CampaignTemplate {
-  const numericId = typeof template.id === 'number' && template.id > 0 ? template.id : null;
+  const numericId = parsePositiveNumericId(template.id);
   const displayId = numericId !== null
     ? `TEMP-${String(numericId).padStart(3, '0')}`
     : `TEMP-${String(index + 1).padStart(3, '0')}`;
@@ -361,19 +362,31 @@ function normalizeTemplateText(value?: string | null): string {
     .replace(/\r/g, '\n');
 }
 
+function parsePositiveNumericId(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
+}
+
 function getTemplateBackendId(template?: EmailTemplateApiRecord | CampaignTemplate | null): number | null {
   if (!template) {
     return null;
   }
 
   const rawId = 'serverId' in template ? template.serverId : template.id;
-  const numericId = typeof rawId === 'number' ? rawId : Number(rawId);
-
-  if (!Number.isFinite(numericId) || numericId <= 0) {
-    return null;
-  }
-
-  return numericId;
+  return parsePositiveNumericId(rawId);
 }
 
 function isSameTemplateRecord(template: CampaignTemplate, record: EmailTemplateApiRecord): boolean {
@@ -717,6 +730,38 @@ function hasStoredSecret(config?: { hasSecret?: boolean | null; isActive?: boole
   return Boolean(config?.hasSecret || config?.isActive);
 }
 
+type SettingsTab = 'notifications' | 'segmentation' | 'templates' | 'scheduling';
+
+const SETTINGS_TAB_QUERY_KEY = 'settingsTab';
+const SETTINGS_ROUTE_QUERY_KEY = 'view';
+const SETTINGS_ROUTE_QUERY_VALUE = 'settings';
+const DEFAULT_SETTINGS_TAB: SettingsTab = 'notifications';
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return value === 'notifications' || value === 'segmentation' || value === 'templates' || value === 'scheduling';
+}
+
+function getSettingsTabFromUrl(): SettingsTab {
+  if (typeof window === 'undefined') {
+    return DEFAULT_SETTINGS_TAB;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get(SETTINGS_TAB_QUERY_KEY);
+  return isSettingsTab(tab) ? tab : DEFAULT_SETTINGS_TAB;
+}
+
+function updateSettingsTabInUrl(tab: SettingsTab) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set(SETTINGS_ROUTE_QUERY_KEY, SETTINGS_ROUTE_QUERY_VALUE);
+  nextUrl.searchParams.set(SETTINGS_TAB_QUERY_KEY, tab);
+  window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+}
+
 export default function SettingsView({ settings, onUpdateSettings, onNavigate }: SettingsViewProps) {
   // --- Active Tab for API Configuration ---
   const [activeApiTab, setActiveApiTab] = useState<'email' | 'whatsapp'>('email');
@@ -751,6 +796,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   // Toasts / Status messages for forms
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isSavingNotificationConfiguration, setIsSavingNotificationConfiguration] = useState(false);
   const [isSavingSegmentation, setIsSavingSegmentation] = useState(false);
   const [isLoadingSegmentation, setIsLoadingSegmentation] = useState(true);
   const notificationLoadingTimerRef = useRef<number | null>(null);
@@ -785,6 +831,16 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
       toastRemainingRef.current = 0;
       setToast(null);
     }, toastRemainingRef.current);
+  };
+
+  const navigateToSettingsTab = (tab: SettingsTab) => {
+    if (activeTab !== tab) {
+      setActiveTab(tab);
+    }
+
+    if (getSettingsTabFromUrl() !== tab) {
+      updateSettingsTabInUrl(tab);
+    }
   };
 
   const pauseToastTimer = () => {
@@ -1032,7 +1088,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [isSection3Expanded, setIsSection3Expanded] = useState(false);
 
   // New Horizontal Tab selection for Settings Panel - Notifications open by default
-  const [activeTab, setActiveTab] = useState<'notifications' | 'segmentation' | 'templates' | 'scheduling'>('notifications');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => getSettingsTabFromUrl());
 
   // VIP Customer Segmentation States
   const [isDynamicSegmentationOn, setIsDynamicSegmentationOn] = useState(false);
@@ -1049,6 +1105,7 @@ export default function SettingsView({ settings, onUpdateSettings, onNavigate }:
   const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
   const [templateToDelete, setTemplateToDelete] = useState<CampaignTemplate | null>(null);
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
+  const [isLoadingEmailTemplates, setIsLoadingEmailTemplates] = useState(true);
   const [templateForm, setTemplateForm] = useState<Partial<CampaignTemplate>>({
     name: '',
     type: 'Email',
@@ -1261,6 +1318,7 @@ interface RegistryCampaign {
     id: string;
     name: string;
     serverId?: number | null;
+    customerActionType?: string | null;
   };
 
   const [registryCampaigns, setRegistryCampaigns] = useState<RegistryCampaign[]>([]);
@@ -1337,6 +1395,18 @@ interface RegistryCampaign {
     return trimmed;
   };
 
+  const getRegistryTemplateSelectionKey = (template?: Pick<RegistryTemplateLookup, 'id' | 'serverId'> | null): string => {
+    if (!template) {
+      return '';
+    }
+
+    if (typeof template.serverId === 'number' && Number.isFinite(template.serverId) && template.serverId > 0) {
+      return String(template.serverId);
+    }
+
+    return template.id || '';
+  };
+
   const resolveRegistryTemplateByReference = (templateRef: number | string | null | undefined): RegistryTemplateLookup | undefined => {
     const normalizedRef = normalizeRegistryTemplateReference(templateRef);
 
@@ -1356,30 +1426,64 @@ interface RegistryCampaign {
 
   const resolveRegistryTemplateSelectionValue = (templateRef: number | string | null | undefined): string => {
     const template = resolveRegistryTemplateByReference(templateRef);
-    return template?.id || '';
-  };
-
-  const getRegistryCampaignTemplateReferences = (campaign: RegistryCampaign): Array<number | string> => {
-    const apiSlotRefs = (campaign.templateSlotIds || [])
-      .map((templateRef) => normalizeRegistryTemplateReference(templateRef))
-      .filter((templateRef): templateRef is number => templateRef !== null && typeof templateRef === 'number');
-
-    if (apiSlotRefs.length > 0) {
-      return apiSlotRefs;
+    if (template) {
+      return typeof template.serverId === 'number' && Number.isFinite(template.serverId) && template.serverId > 0
+        ? String(template.serverId)
+        : template.id || '';
     }
 
-    return (campaign.templates || [])
-      .map((templateRef) => normalizeRegistryTemplateReference(templateRef))
-      .filter((templateRef): templateRef is number | string => templateRef !== null);
+    const normalizedRef = normalizeRegistryTemplateReference(templateRef);
+    return normalizedRef === null ? '' : String(normalizedRef);
+  };
+
+  const isRegistryTemplateCompatibleWithSegment = (
+    template: { customerActionType?: string | null } | null | undefined,
+    segment?: RegistryCampaign['segment']
+  ): boolean => {
+    const selectedSegmentLabel = formatCustomerActionTriggerLabel(segment);
+
+    if (!selectedSegmentLabel) {
+      return true;
+    }
+
+    const templateSegmentLabel = formatCustomerActionTriggerLabel(template.customerActionType);
+
+    if (!templateSegmentLabel) {
+      return false;
+    }
+
+    return normalizeTemplateText(templateSegmentLabel).toLowerCase() === normalizeTemplateText(selectedSegmentLabel).toLowerCase();
+  };
+
+  const getRegistryTemplateCreatedAtSortValue = (template: { createdDate?: string | null; lastUpdated?: string | null }) => {
+    const dateCandidate = (template.createdDate || template.lastUpdated || '').trim();
+    if (!dateCandidate) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const parsed = Date.parse(dateCandidate);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  };
+
+  const getRegistryCampaignTemplateReferences = (campaign: RegistryCampaign): Array<number | string | null> => {
+    const sourceRefs = (campaign.templateSlotIds && campaign.templateSlotIds.length > 0)
+      ? campaign.templateSlotIds
+      : campaign.templates;
+
+    return Array.from({ length: 8 }, (_, slotIdx) => {
+      const templateRef = sourceRefs?.[slotIdx] ?? null;
+      return normalizeRegistryTemplateReference(templateRef);
+    });
   };
 
   const getRegistryCampaignTemplatePreview = (campaign: RegistryCampaign, maxVisible = 3, expanded = false) => {
     const templateRefs = getRegistryCampaignTemplateReferences(campaign);
-    const visibleCount = expanded ? templateRefs.length : maxVisible;
+    const compactTemplateRefs = templateRefs.filter((templateRef): templateRef is number | string => templateRef !== null);
+    const visibleCount = expanded ? compactTemplateRefs.length : maxVisible;
 
     return {
       templateRefs,
-      visibleTemplates: templateRefs.slice(0, visibleCount).map((templateRef, index) => {
+      visibleTemplates: compactTemplateRefs.slice(0, visibleCount).map((templateRef, index) => {
         const template = resolveRegistryTemplateByReference(templateRef);
 
         return {
@@ -1388,7 +1492,7 @@ interface RegistryCampaign {
           name: template?.name || 'Unknown'
         };
       }),
-      remainingCount: Math.max(0, templateRefs.length - maxVisible)
+      remainingCount: Math.max(0, compactTemplateRefs.length - maxVisible)
     };
   };
 
@@ -1444,7 +1548,7 @@ interface RegistryCampaign {
     record: CampaignAutomationApiRecord,
     index: number
   ): RegistryCampaign => {
-    const serverId = typeof record.id === 'number' && Number.isFinite(record.id) ? record.id : null;
+    const serverId = parsePositiveNumericId(record.id);
     const templateSlotIds = [
       record.templateSlot1 ?? null,
       record.templateSlot2 ?? null,
@@ -1516,7 +1620,25 @@ interface RegistryCampaign {
         return;
       }
 
-      setRegistryTemplateOptions(apiTemplates.map((template, index) => mapEmailTemplateToCampaignTemplate(template, index)));
+      setRegistryTemplateOptions(
+        apiTemplates
+          .map((template, index) => mapEmailTemplateToCampaignTemplate(template, index))
+          .sort((left, right) => {
+            const leftSortValue = getRegistryTemplateCreatedAtSortValue(left);
+            const rightSortValue = getRegistryTemplateCreatedAtSortValue(right);
+
+            if (leftSortValue !== rightSortValue) {
+              return leftSortValue - rightSortValue;
+            }
+
+            const nameCompare = normalizeTemplateText(left.name).localeCompare(normalizeTemplateText(right.name));
+            if (nameCompare !== 0) {
+              return nameCompare;
+            }
+
+            return normalizeTemplateText(left.id).localeCompare(normalizeTemplateText(right.id));
+          })
+      );
     } catch {
       if (!signal?.aborted) {
         setRegistryTemplateOptions([]);
@@ -1579,18 +1701,36 @@ interface RegistryCampaign {
   }, [isRegistryModalOpen, registryForm.channelType]);
 
   const handleOpenSchedulingTab = () => {
-    setActiveTab('scheduling');
-
-    const controller = new AbortController();
-    void loadRegistryCampaigns(controller.signal);
+    navigateToSettingsTab('scheduling');
   };
 
   const getRegistryTemplateOptionsForSlot = (slotIdx: number) => {
     const currentTemplateId = (registryForm.templates || [])[slotIdx] || '';
 
-    return registryTemplateOptions.filter((template) => {
-      return template.id === currentTemplateId || !selectedRegistryTemplateIds.has(template.id);
-    });
+    return registryTemplateOptions
+      .filter((template) => {
+        const templateSelectionKey = getRegistryTemplateSelectionKey(template);
+
+        return (
+          isRegistryTemplateCompatibleWithSegment(template, registryForm.segment) &&
+          (templateSelectionKey === currentTemplateId || !selectedRegistryTemplateIds.has(templateSelectionKey))
+        );
+      })
+      .sort((left, right) => {
+        const leftSortValue = getRegistryTemplateCreatedAtSortValue(left);
+        const rightSortValue = getRegistryTemplateCreatedAtSortValue(right);
+
+        if (leftSortValue !== rightSortValue) {
+          return leftSortValue - rightSortValue;
+        }
+
+        const nameCompare = normalizeTemplateText(left.name).localeCompare(normalizeTemplateText(right.name));
+        if (nameCompare !== 0) {
+          return nameCompare;
+        }
+
+        return normalizeTemplateText(left.id).localeCompare(normalizeTemplateText(right.id));
+      });
   };
 
   // --- Handlers for Email/WhatsApp Settings ---
@@ -1736,7 +1876,38 @@ interface RegistryCampaign {
     };
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== 'scheduling') {
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadRegistryCampaigns(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handlePopState = () => {
+      setActiveTab(getSettingsTabFromUrl());
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
   const loadEmailTemplates = async (signal?: AbortSignal) => {
+    setIsLoadingEmailTemplates(true);
+
     try {
       const apiTemplates = await fetchEmailTemplates({ signal });
 
@@ -1750,17 +1921,25 @@ interface RegistryCampaign {
         // Keep the seeded templates visible if the backend is unavailable.
         // The save flow still talks to the live API when the user submits changes.
       }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingEmailTemplates(false);
+      }
     }
   };
 
   useEffect(() => {
+    if (activeTab !== 'templates') {
+      return;
+    }
+
     const controller = new AbortController();
     void loadEmailTemplates(controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [activeTab]);
 
   // --- Handlers for Templates ---
   const filteredTemplates = useMemo(() => {
@@ -2213,6 +2392,7 @@ interface RegistryCampaign {
         startDate: extractDateInputValue(campaign.startDate),
         dispatchTime: extractTimeInputValue(campaign.dispatchTime),
         templates: [...resolvedTemplateSelections, ...Array(8).fill('')].slice(0, 8),
+        templateSlotIds: [...(campaign.templateSlotIds || Array(8).fill(null)), ...Array(8).fill(null)].slice(0, 8),
         templateSlotDates: campaign.templateSlotDates || Array(8).fill(null),
         segment: campaign.segment,
         status: campaign.status,
@@ -2226,6 +2406,7 @@ interface RegistryCampaign {
         startDate: '',
         dispatchTime: '',
         templates: ['', '', '', '', '', '', '', ''],
+        templateSlotIds: Array(8).fill(null),
         templateSlotDates: Array(8).fill(null),
         segment: '',
         status: '',
@@ -2272,6 +2453,7 @@ interface RegistryCampaign {
     }
 
     const selectedTemplateIds = (registryForm.templates || []).map((templateId) => templateId || '');
+    const selectedTemplateSlotIds = (registryForm.templateSlotIds || []).map((templateId) => templateId ?? null);
 
     setRegistryErrors({});
     if (!selectedTemplateIds.some(Boolean)) {
@@ -2309,11 +2491,12 @@ interface RegistryCampaign {
 
       const buildSlotPayload = (slotIdx: number): { templateId: number | null; templateDate: string | null } => {
         const selectedTemplateId = selectedTemplateIds[slotIdx];
+        const storedTemplateId = selectedTemplateSlotIds[slotIdx];
         if (!selectedTemplateId) {
           return { templateId: null, templateDate: null };
         }
 
-        const serverId = resolveTemplateServerId(selectedTemplateId);
+        const serverId = parsePositiveNumericId(storedTemplateId) ?? resolveTemplateServerId(selectedTemplateId);
         if (!serverId) {
           throw new Error(`Template selected for Slot ${slotIdx + 1} does not have a backend id yet.`);
         }
@@ -2372,7 +2555,7 @@ interface RegistryCampaign {
         name: savedRecord.campaignName?.trim() || campaignName,
         startDate: extractDateInputValue(savedRecord.campaignStartDate) || campaignStartDate,
         dispatchTime: extractTimeInputValue(savedRecord.dispatchTime || dispatchTime),
-        templates: selectedTemplateIds.filter(Boolean),
+        templates: [...selectedTemplateIds, ...Array(8).fill('')].slice(0, 8),
         templateSlotIds: slotPayloads.map((slot) => slot.templateId),
         templateSlotDates: [
           savedRecord.templateSlot1Date ?? slotPayloads[0].templateDate,
@@ -2494,7 +2677,7 @@ interface RegistryCampaign {
       <div className="border border-border-subtle bg-bg-card rounded-t-2xl rounded-b-none p-1.5 flex flex-wrap md:flex-nowrap items-center gap-1.5 shadow-xxs mb-0 border-b-0">
         <button
           type="button"
-          onClick={() => setActiveTab('notifications')}
+          onClick={() => navigateToSettingsTab('notifications')}
           className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
             activeTab === 'notifications'
               ? 'bg-[#B9D7FC] text-slate-900 border-[#96bae6] shadow-xxs font-extrabold'
@@ -2507,7 +2690,7 @@ interface RegistryCampaign {
 
         <button
           type="button"
-          onClick={() => setActiveTab('segmentation')}
+          onClick={() => navigateToSettingsTab('segmentation')}
           className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
             activeTab === 'segmentation'
               ? 'bg-[#B9D7FC] text-slate-900 border-[#96bae6] shadow-xxs font-extrabold'
@@ -2520,7 +2703,7 @@ interface RegistryCampaign {
 
         <button
           type="button"
-          onClick={() => setActiveTab('templates')}
+          onClick={() => navigateToSettingsTab('templates')}
           className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
             activeTab === 'templates'
               ? 'bg-[#B9D7FC] text-slate-900 border-[#96bae6] shadow-xxs font-extrabold'
@@ -2548,13 +2731,6 @@ interface RegistryCampaign {
       {/* SECTION 1: Campaign Service API Config */}
       {activeTab === 'notifications' && (
         <div className="bg-bg-card border border-border-subtle/80 border-t-0 rounded-b-2xl rounded-t-none p-3 sm:p-5 shadow-xxs space-y-5 transition-all duration-200 mt-0">
-          {/* 
-            {isLoadingNotificationConfiguration ? (
-              <div className="min-h-[520px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
-                <CustomerDataLoader overlay={false} />
-              </div>
-            ) : null}
-          */}
           <div 
             className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4 select-none"
           >
@@ -2597,8 +2773,14 @@ interface RegistryCampaign {
             </div>
           </div>
 
-          {/* Dynamic Form based on Tab */}
-          {activeApiTab === 'email' ? (
+          <div>
+            {isLoadingNotificationConfiguration ? (
+              <div className="min-h-[520px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
+                <CustomerDataLoader overlay={false} />
+              </div>
+            ) : (
+              <>
+                {activeApiTab === 'email' ? (
           <div className="w-full max-w-[660px] mx-auto space-y-4 sm:space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
@@ -2977,14 +3159,24 @@ interface RegistryCampaign {
                 <button
                   type="button"
                   onClick={handleSaveApiConfig}
-                  className="w-full sm:flex-1 px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5"
+                  disabled={isSavingNotificationConfiguration}
+                  className="w-full sm:flex-1 px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                  Save WhatsApp Configuration
+                  {isSavingNotificationConfiguration ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save WhatsApp Configuration'
+                  )}
                 </button>
               </div>
             </div>
           </div>
         )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -3005,6 +3197,12 @@ interface RegistryCampaign {
               </p>
             </div>
           </div>
+
+          {isLoadingSegmentation && (
+            <div className="min-h-[180px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
+              <CustomerDataLoader overlay={false} />
+            </div>
+          )}
 
           <div className="space-y-6 pt-2 max-w-5xl mx-auto w-full">
             <div className="flex flex-col gap-4">
@@ -3205,7 +3403,7 @@ interface RegistryCampaign {
               </button>
             </div>
           </div>
-        </div>
+          </div>
       )}
 
       {/* SECTION 3: Campaign Templates */}
@@ -3233,7 +3431,12 @@ interface RegistryCampaign {
             </button>
           </div>
 
-          <>
+          {isLoadingEmailTemplates ? (
+            <div className="min-h-[260px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
+              <CustomerDataLoader overlay={false} />
+            </div>
+          ) : (
+            <div className="space-y-4">
             {/* Filters and Search toolbar */}
             <div className="flex flex-col lg:flex-row gap-3 pt-1">
               {/* Search */}
@@ -3420,35 +3623,17 @@ interface RegistryCampaign {
             </button>
           </div>
         </div>
-          </>
+            </div>
+      )}
         </div>
       )}
 
       {/* SECTION 4: Campaign Scheduling */}
       {activeTab === 'scheduling' && (
         <div className="bg-bg-card border border-border-subtle/80 border-t-0 rounded-b-2xl rounded-t-none p-0 shadow-xxs transition-all duration-200 mt-0">
-          {false && (
-            <div>
           <div 
             className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4 select-none"
           >
-            <div className="flex-1">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-base font-bold text-text-primary tracking-tight">
-                  Campaign Scheduling
-                </h2>
-              </div>
-              <p className="text-xs text-text-secondary mt-1">
-                Tasks based on recurring time frames or received customer state changes.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => handleOpenAutomationModal()}
-              className="self-start sm:self-center px-4 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xxs cursor-pointer"
-            >
-              <Plus className="w-4 h-4 text-slate-900" /> Schedule
-            </button>
           </div>
 
           {registryCampaignsError && (
@@ -3457,354 +3642,6 @@ interface RegistryCampaign {
             </div>
           )}
 
-            {/* Scheduled Automation List Grid/Table Wrapper */}
-        <div className="space-y-4">
-          {/* Mobile Stacked Card Layout (<768px) */}
-          <div className="block md:hidden space-y-4">
-            {automations.length === 0 ? (
-              <div className="p-8 text-center text-text-secondary font-bold text-[13px] border border-gray-200 rounded-xl bg-white shadow-xs">
-                No scheduled campaigns registered. Select "Schedule" to begin.
-              </div>
-            ) : (
-              paginatedAutomations.map(a => {
-                const template = templates.find(t => t.id === a.templateId);
-                return (
-                  <div key={a.id} className="p-4 border border-gray-200 rounded-xl bg-white shadow-xs space-y-3.5">
-                    <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2">
-                      <div className="font-extrabold text-[14px] text-text-primary leading-snug">
-                        {a.name}
-                      </div>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold border shadow-xxs shrink-0 ${
-                        a.triggerCategory === 'Recurring' 
-                          ? 'bg-blue-50 border-blue-100 text-blue-700' 
-                          : a.triggerCategory === 'Event-based' 
-                            ? 'bg-purple-50 border-purple-100 text-purple-700' 
-                            : 'bg-orange-50 border-orange-100 text-orange-700'
-                      }`}>
-                        {a.triggerCategory || 'Recurring'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-[12px]">
-                      <div className="flex flex-col text-left">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">ID & Start Date</span>
-                        <div className="flex flex-col gap-1 mt-1">
-                          <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-md w-fit">[ID]: {a.id}</span>
-                          {a.startDateTime ? (
-                            <div className="flex flex-col gap-0.5 text-[10px] text-gray-500 leading-tight font-sans">
-                              <span className="font-semibold text-slate-700">Start: {a.startDateTime}</span>
-                              {a.endDateTime && <span className="font-semibold text-rose-600">End: {a.endDateTime}</span>}
-                              {a.dispatchTime && (
-                                <span className="font-bold text-emerald-600 bg-emerald-50 border border-emerald-100/60 rounded px-1 py-0.5 mt-0.5 text-[9px] w-fit">
-                                  Time: {formatTime12Hour(a.dispatchTime)}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-[10.5px] font-semibold text-gray-500">Started: {a.startDate}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col text-left">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Template Name</span>
-                        <div className="mt-1">
-                          {template ? (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-[9px] font-extrabold border shadow-xxs shrink-0 ${
-                                template.type === 'Email' 
-                                  ? 'bg-brand-bg-active border-brand-primary/30 text-brand-primary' 
-                                  : 'bg-emerald-50 border-emerald-100 text-emerald-600'
-                              }`}>
-                                {template.type.toUpperCase()}
-                              </span>
-                              <span className="font-bold text-[12px] text-text-primary break-words leading-tight">{template.name}</span>
-                            </div>
-                          ) : (
-                            <span className="text-rose-500 font-extrabold flex items-center gap-1 text-[11px]">
-                              <AlertCircle className="w-3.5 h-3.5" /> Missing Template
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col text-left col-span-2 sm:col-span-1">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Trigger Cadence</span>
-                        <div className="flex items-center gap-1.5 text-text-primary font-bold text-[12px] mt-1">
-                          <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                          <span className="leading-tight">{getTriggerCadenceDescription(a, templates)}</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col text-left col-span-2 sm:col-span-1">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Timezone Scope</span>
-                        <div className="flex items-center gap-1.5 font-semibold text-gray-600 text-[11.5px] mt-1">
-                          <Globe className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                          <span>{a.timezone}</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col text-left">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Last Triggered</span>
-                        <span className="font-mono font-semibold text-gray-500 text-[11px] mt-1">{a.lastTriggered || 'Never'}</span>
-                      </div>
-                      <div className="flex flex-col text-left">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Status</span>
-                        <div className="mt-1">
-                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-extrabold shadow-xxs border ${
-                            a.status === 'Active' 
-                              ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' 
-                              : 'bg-rose-50 border border-rose-100 text-rose-700'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${a.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                            {a.status.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col text-left">
-                        <span className="text-gray-400 font-extrabold uppercase tracking-wider text-[10px]">Actions</span>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleAutomationStatus(a.id)}
-                            className={`p-1.5 rounded-lg transition-all cursor-pointer border shadow-xxs flex items-center justify-center shrink-0 ${
-                              a.status === 'Active' 
-                                ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200' 
-                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-                            }`}
-                            title={a.status === 'Active' ? 'DEACTIVATE' : 'ACTIVATE'}
-                          >
-                            {a.status === 'Active' ? (
-                              <Pause className="w-3.5 h-3.5" />
-                            ) : (
-                              <Play className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRunAutomationNow(a)}
-                            className="p-1.5 bg-brand-bg-active hover:bg-brand-primary/20 text-brand-primary border border-brand-primary/30 rounded-lg transition-all cursor-pointer shadow-xxs flex items-center justify-center shrink-0"
-                            title="RUN NOW"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
-                          <div className="h-4 w-px bg-gray-200 shrink-0 mx-0.5"></div>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAutomationModal(a)}
-                            className="p-1.5 hover:bg-amber-50 hover:text-amber-600 rounded-lg text-text-secondary transition-all cursor-pointer border border-transparent hover:border-amber-200 flex items-center justify-center shrink-0"
-                            title="Edit schedule"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAutomation(a.id)}
-                            className="p-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-text-secondary transition-all cursor-pointer border border-transparent hover:border-rose-200 flex items-center justify-center shrink-0"
-                            title="Delete schedule"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Desktop Table Layout (>=768px with auto sizing and horizontal scrolling) */}
-          <div className="hidden md:block overflow-x-auto border border-border-subtle rounded-xl bg-white shadow-xs">
-            <table className="w-full text-left border-collapse table-auto md:text-[13px] lg:text-[13.5px] min-w-[1100px]">
-              <thead>
-                <tr className="bg-[#B9D7FC] text-slate-900 border-b border-border-subtle font-bold">
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[140px] md:max-w-[240px] lg:max-w-[280px]">Campaign Name</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[115px] md:max-w-[140px] lg:max-w-[160px]">ID & Start Date</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[140px] md:max-w-[220px] lg:max-w-[260px]">Template Name</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[110px]">Trigger Category</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-left min-w-[150px] md:max-w-[220px] lg:max-w-[250px]">Trigger Cadence</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-center min-w-[110px] md:max-w-[140px] lg:max-w-[180px]">Timezone</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-center min-w-[125px]">Last Triggered</th>
-                  <th className="px-3 lg:px-4 py-2.5 border-r border-border-subtle uppercase tracking-wider text-[11px] lg:text-[12px] font-extrabold text-center min-w-[90px] md:max-w-[110px] lg:max-w-[130px]">Status</th>
-                  <th className="px-3 lg:px-4 py-2.5 uppercase tracking-wider text-slate-900 text-[11px] lg:text-[12px] font-extrabold text-right min-w-[150px]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {automations.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
-                      No scheduled campaigns registered. Select "Schedule" to begin.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedAutomations.map(a => {
-                    const template = templates.find(t => t.id === a.templateId);
-                    return (
-                      <tr key={a.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle min-w-[140px] md:max-w-[240px] lg:max-w-[280px]">
-                          <div className="font-extrabold text-[12.5px] lg:text-[13px] text-text-primary leading-tight break-words">
-                            {a.name}
-                          </div>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle min-w-[115px] md:max-w-[140px] lg:max-w-[160px]">
-                          <div className="flex flex-col gap-1 text-left">
-                            <span className="text-[9.5px] lg:text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-md w-fit">[ID]: {a.id}</span>
-                            {a.startDateTime ? (
-                              <div className="flex flex-col gap-0.5 text-[9.5px] lg:text-[10px] text-gray-500 leading-tight font-sans">
-                                <span className="font-semibold text-slate-700">Start: {a.startDateTime}</span>
-                                {a.endDateTime && <span className="font-semibold text-rose-600">End: {a.endDateTime}</span>}
-                                {a.dispatchTime && (
-                                  <span className="font-bold text-emerald-600 bg-emerald-50 border border-emerald-100/60 rounded px-1 py-0.5 mt-0.5 text-[9px] w-fit">
-                                    Time: {formatTime12Hour(a.dispatchTime)}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-[10px] lg:text-[10.5px] font-semibold text-gray-500">Started: {a.startDate}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle min-w-[140px] md:max-w-[220px] lg:max-w-[260px]">
-                          {template ? (
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`inline-flex items-center justify-center px-2 py-0.5 h-5 rounded-full text-[9px] lg:text-[10px] font-extrabold border shadow-xxs shrink-0 ${
-                                template.type === 'Email' 
-                                  ? 'bg-brand-bg-active border-brand-primary/30 text-brand-primary' 
-                                  : 'bg-emerald-50 border-emerald-100 text-emerald-600'
-                              }`}>
-                                {template.type.toUpperCase()}
-                              </span>
-                              <span className="font-bold text-[12.5px] lg:text-[13px] text-text-primary leading-tight break-words">{template.name}</span>
-                            </div>
-                          ) : (
-                            <span className="text-rose-500 font-extrabold flex items-center gap-1 text-[12px]">
-                              <AlertCircle className="w-4 h-4" /> Missing Template
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle min-w-[110px]">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border shadow-xxs ${
-                            a.triggerCategory === 'Recurring' 
-                              ? 'bg-blue-50 border-blue-100 text-blue-700' 
-                              : a.triggerCategory === 'Event-based' 
-                                ? 'bg-purple-50 border-purple-100 text-purple-700' 
-                                : 'bg-orange-50 border-orange-100 text-orange-700'
-                          }`}>
-                            {a.triggerCategory || 'Recurring'}
-                          </span>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle min-w-[150px] md:max-w-[220px] lg:max-w-[250px]">
-                          <div className="flex items-center gap-1.5 text-text-primary font-bold text-[12.5px] lg:text-[13px]">
-                            <Clock className="w-4 h-4 text-gray-400 shrink-0" />
-                            <span className="break-words leading-tight">{getTriggerCadenceDescription(a, templates)}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle text-center min-w-[110px] md:max-w-[140px] lg:max-w-[180px]">
-                          <div className="inline-flex items-center justify-center gap-1.5 font-semibold text-gray-600 text-[11px] lg:text-[12px]">
-                            <Globe className="w-4 h-4 text-gray-400 shrink-0" />
-                            <span className="break-words">{a.timezone}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle text-center min-w-[125px] font-mono font-semibold text-gray-500 text-[11.5px]">
-                          {a.lastTriggered || 'Never'}
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-r border-b border-gray-200 align-middle text-center min-w-[90px] md:max-w-[110px] lg:max-w-[130px]">
-                          <div className="flex items-center justify-center">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] lg:text-[11px] font-extrabold shadow-xxs border ${
-                              a.status === 'Active' 
-                                ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' 
-                                : 'bg-rose-50 border border-rose-100 text-rose-700'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${a.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                              {a.status.toUpperCase()}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-3 lg:px-4 py-3 border-b border-gray-200 align-middle text-right min-w-[150px]">
-                          <div className="flex items-center justify-end gap-2 lg:gap-3">
-                            {/* Primary Actions - Compact and Tooltip on Hover */}
-                            <div className="flex items-center gap-1.5 lg:gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleAutomationStatus(a.id)}
-                                className={`p-1.5 lg:p-2 rounded-lg lg:rounded-xl transition-all cursor-pointer border shadow-xxs flex items-center justify-center shrink-0 ${
-                                  a.status === 'Active' 
-                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200' 
-                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-                                }`}
-                                title={a.status === 'Active' ? 'DEACTIVATE' : 'ACTIVATE'}
-                              >
-                                {a.status === 'Active' ? (
-                                  <Pause className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                                ) : (
-                                  <Play className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRunAutomationNow(a)}
-                                className="p-1.5 lg:p-2 bg-brand-bg-active hover:bg-brand-primary/20 text-brand-primary border border-brand-primary/30 rounded-lg lg:rounded-xl transition-all cursor-pointer shadow-xxs flex items-center justify-center shrink-0"
-                                title="RUN NOW"
-                              >
-                                <Send className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                              </button>
-                            </div>
-                            
-                            {/* Vertical Divider */}
-                            <div className="h-4 w-px bg-gray-200 shrink-0"></div>
-                            
-                            {/* Secondary Actions Group */}
-                            <div className="flex items-center gap-1 lg:gap-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAutomationModal(a)}
-                                className="p-1.5 lg:p-2 hover:bg-amber-50 hover:text-amber-600 rounded-lg lg:rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-amber-200 flex items-center justify-center shrink-0"
-                                title="Edit schedule"
-                              >
-                                <Pencil className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAutomation(a.id)}
-                                className="p-1.5 lg:p-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg lg:rounded-xl text-text-secondary transition-all cursor-pointer border border-transparent hover:border-rose-200 flex items-center justify-center shrink-0"
-                                title="Delete schedule"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Table Pagination for Campaign Scheduling */}
-          {automations.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-              <div className="text-xs font-bold text-gray-400">
-                Showing {Math.min(automations.length, (schedulingPage - 1) * schedulingPerPage + 1)} to {Math.min(schedulingPage * schedulingPerPage, automations.length)} of {automations.length} campaigns
-              </div>
-              <div className="flex items-center gap-1.5 text-xs font-bold">
-                <button
-                  onClick={() => setSchedulingPage(p => Math.max(1, p - 1))}
-                  disabled={schedulingPage === 1}
-                  className="px-3.5 py-2 bg-bg-viewport border border-border-subtle text-text-primary rounded-xl hover:bg-bg-neutral/10 disabled:opacity-50 disabled:hover:bg-bg-viewport transition-colors cursor-pointer font-bold"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setSchedulingPage(p => Math.min(totalSchedulingPages, p + 1))}
-                  disabled={schedulingPage === totalSchedulingPages}
-                  className="px-3.5 py-2 bg-bg-viewport border border-border-subtle text-text-primary rounded-xl hover:bg-bg-neutral/10 disabled:opacity-50 disabled:hover:bg-bg-viewport transition-colors cursor-pointer font-bold"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
-          </div>
-            </div>
-        )}
 
         {/* Campaign Registry Grid Section */}
         <div className="space-y-4 animate-in fade-in duration-200 px-4 sm:px-5 lg:px-6 pt-4 sm:pt-5">
@@ -3957,7 +3794,9 @@ interface RegistryCampaign {
                                 } disabled:opacity-60 disabled:cursor-not-allowed`}
                                 title={c.status === 'Active' ? 'DEACTIVATE' : 'ACTIVATE'}
                               >
-                                {c.status === 'Active' ? (
+                                {updatingRegistryStatusId === c.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin" />
+                                ) : c.status === 'Active' ? (
                                   <Pause className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
                                 ) : (
                                   <Play className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
@@ -4108,7 +3947,9 @@ interface RegistryCampaign {
                           } disabled:opacity-60 disabled:cursor-not-allowed`}
                           title={c.status === 'Active' ? 'DEACTIVATE' : 'ACTIVATE'}
                         >
-                          {c.status === 'Active' ? (
+                          {updatingRegistryStatusId === c.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : c.status === 'Active' ? (
                             <Pause className="w-3.5 h-3.5" />
                           ) : (
                             <Play className="w-3.5 h-3.5" />
@@ -4379,9 +4220,9 @@ interface RegistryCampaign {
                 </button>
               </div>
             </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* --- MODAL 2: Delete Template Confirmation Dialog --- */}
       {templateToDelete && (
@@ -4768,6 +4609,7 @@ interface RegistryCampaign {
                   <input
                     type="date"
                     value={registryForm.startDate || ''}
+                    min={getTodayDateString()}
                     onChange={(e) => {
                       const nextStartDate = e.target.value;
                       setRegistryForm(prev => ({
@@ -4808,10 +4650,26 @@ interface RegistryCampaign {
                 {/* Segment Type */}
                 <div>
                   <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Customer Segment Trigger</label>
-                  <select
-                    value={registryForm.segment || ''}
-                    onChange={(e) => {
-                      setRegistryForm(prev => ({ ...prev, segment: e.target.value as any }));
+                <select
+                  value={registryForm.segment || ''}
+                  onChange={(e) => {
+                      const nextSegment = e.target.value as any;
+                      setRegistryForm(prev => {
+                        const currentTemplates = prev.templates || Array(8).fill('');
+
+                        return {
+                          ...prev,
+                          segment: nextSegment,
+                          templates: currentTemplates.map((templateRef) => {
+                            if (!templateRef || !nextSegment) {
+                              return templateRef;
+                            }
+
+                            const template = resolveRegistryTemplateByReference(templateRef);
+                            return template && isRegistryTemplateCompatibleWithSegment(template, nextSegment) ? templateRef : '';
+                          })
+                        };
+                      });
                       if (registryErrors.segment) setRegistryErrors(prev => ({ ...prev, segment: '' }));
                     }}
                     className={`w-full text-xs font-bold bg-bg-viewport border ${
@@ -4819,6 +4677,7 @@ interface RegistryCampaign {
                     } px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary cursor-pointer`}
                   >
                     <option value="">Select Segment</option>
+                    <option value="VIP Customer">VIP Customer</option>
                     <option value="Abandoned Checkout">Abandoned Checkout</option>
                     <option value="Inactive Customer">Inactive Customer</option>
                   </select>
@@ -4924,16 +4783,46 @@ interface RegistryCampaign {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {Array.from({ length: 8 }).map((_, slotIdx) => (
                     <div key={slotIdx} className="space-y-1">
-                      <label className="block text-[10px] font-bold text-gray-400">Template - Slot {slotIdx + 1}{getSlotDateLabel(slotIdx)}</label>
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="block text-[10px] font-bold text-gray-400">
+                          Template - Slot {slotIdx + 1}{getSlotDateLabel(slotIdx)}
+                        </label>
+                        {(registryForm.templates || [])[slotIdx] && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRegistryForm(prev => {
+                                const updatedTemplates = [...(prev.templates || Array(8).fill(''))];
+                                const updatedSlotIds = [...(prev.templateSlotIds || Array(8).fill(null))];
+                                updatedTemplates[slotIdx] = '';
+                                updatedSlotIds[slotIdx] = null;
+                                return { ...prev, templates: updatedTemplates, templateSlotIds: updatedSlotIds };
+                              });
+                              if (registryErrors.templates) {
+                                setRegistryErrors(prev => ({ ...prev, templates: '' }));
+                              }
+                            }}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border-subtle text-gray-400 transition-colors hover:border-red-300 hover:text-red-600"
+                            title={`Clear Slot ${slotIdx + 1}`}
+                            aria-label={`Clear Slot ${slotIdx + 1}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                       <select
                         value={(registryForm.templates || [])[slotIdx] || ''}
                         disabled={!registryForm.channelType || isLoadingRegistryTemplates || registryTemplateOptions.length === 0}
                         onChange={(e) => {
                           const val = e.target.value;
+                          const resolvedTemplate = resolveRegistryTemplateByReference(val);
+                          const resolvedTemplateId = parsePositiveNumericId(resolvedTemplate?.serverId);
                           setRegistryForm(prev => {
                             const updated = [...(prev.templates || Array(8).fill(''))];
                             updated[slotIdx] = val;
-                            return { ...prev, templates: updated };
+                            const updatedSlotIds = [...(prev.templateSlotIds || Array(8).fill(null))];
+                            updatedSlotIds[slotIdx] = resolvedTemplateId;
+                            return { ...prev, templates: updated, templateSlotIds: updatedSlotIds };
                           });
                           if (registryErrors.templates) {
                             setRegistryErrors(prev => ({ ...prev, templates: '' }));
@@ -4949,7 +4838,7 @@ interface RegistryCampaign {
                               : 'Select channel type first'}
                         </option>
                         {getRegistryTemplateOptionsForSlot(slotIdx).map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
+                          <option key={t.id} value={getRegistryTemplateSelectionKey(t)}>{t.name}</option>
                         ))}
                       </select>
                       

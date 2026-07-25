@@ -71,6 +71,7 @@ export interface CustomerOrder {
   orderId: string;
   name?: string;
   date: string;
+  deliveredAt?: string;
   amount: number;
   status: string;
   paymentStatus?: string;
