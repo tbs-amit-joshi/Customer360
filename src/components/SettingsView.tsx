@@ -1449,7 +1449,8 @@ interface RegistryCampaign {
     const templateSegmentLabel = formatCustomerActionTriggerLabel(template.customerActionType);
 
     if (!templateSegmentLabel) {
-      return false;
+      // Templates without an explicit trigger label should remain selectable.
+      return true;
     }
 
     return normalizeTemplateText(templateSegmentLabel).toLowerCase() === normalizeTemplateText(selectedSegmentLabel).toLowerCase();
