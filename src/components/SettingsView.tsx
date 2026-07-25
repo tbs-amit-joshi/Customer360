@@ -144,46 +144,6 @@ function extractTimeInputValue(value?: string | null): string {
   return timeValue.slice(0, 5);
 }
 
-function buildRegistryTemplateSlotDates(startDate: string, type: string): Array<string | null> {
-  if (!startDate || !type) {
-    return Array(8).fill(null);
-  }
-
-  const parts = startDate.split('-');
-  if (parts.length !== 3) {
-    return Array(8).fill(null);
-  }
-
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
-  const targetDate = new Date(year, month, day);
-
-  if (Number.isNaN(targetDate.getTime())) {
-    return Array(8).fill(null);
-  }
-
-  let multiplier = 0;
-  if (type === 'Daily') {
-    multiplier = 1;
-  } else if (type === 'Alternative') {
-    multiplier = 2;
-  } else if (type === 'Weekly') {
-    multiplier = 7;
-  } else {
-    return Array(8).fill(null);
-  }
-
-  return Array.from({ length: 8 }, (_, slotIdx) => {
-    const slotDate = new Date(targetDate);
-    slotDate.setDate(slotDate.getDate() + ((slotIdx + 1) * multiplier));
-    const yyyy = slotDate.getFullYear();
-    const mm = String(slotDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(slotDate.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}T00:00:00`;
-  });
-}
-
 function normalizeRegistryCampaignType(value?: string | null): 'Daily' | 'Alternative' | 'Weekly' | '' {
   const normalized = (value || '').trim().toLowerCase();
 
@@ -1343,11 +1303,33 @@ interface RegistryCampaign {
   const [isLoadingRegistryCampaigns, setIsLoadingRegistryCampaigns] = useState(false);
   const [isSavingRegistryCampaign, setIsSavingRegistryCampaign] = useState(false);
   const [registryCampaignsError, setRegistryCampaignsError] = useState<string | null>(null);
+  const [openRegistryTemplateSlotIndex, setOpenRegistryTemplateSlotIndex] = useState<number | null>(null);
+  const registryTemplateSlotPickerRef = useRef<HTMLDivElement | null>(null);
 
   const [previewingTemplateObj, setPreviewingTemplateObj] = useState<{ name: string; subject: string; body: string } | null>(null);
   const selectedRegistryTemplateIds = useMemo(() => {
     return new Set((registryForm.templates || []).filter((templateId): templateId is string => Boolean(templateId)));
   }, [registryForm.templates]);
+
+  useEffect(() => {
+    if (openRegistryTemplateSlotIndex === null) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        registryTemplateSlotPickerRef.current &&
+        !registryTemplateSlotPickerRef.current.contains(event.target as Node)
+      ) {
+        setOpenRegistryTemplateSlotIndex(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openRegistryTemplateSlotIndex]);
 
   const sequenceTemplates = [
     { id: 'TMP-ACB-01', name: 'You left something behind', subject: 'Did you forget something in your cart?', body: 'Hi {{customer_name}},\n\nWe noticed you left some amazing items in your shopping cart. Don\'t miss outÃ¢â‚¬â€complete your order now and secure free shipping!\n\nRetrieve your cart: https://techcrm.store/cart\n\nCheers,\nTechCRM Care' },
@@ -1502,16 +1484,10 @@ interface RegistryCampaign {
     initialStatus: RegistryCampaign['status']
   ): CampaignAutomationSaveRequest => {
     const templateRefs = getRegistryCampaignTemplateReferences(campaign);
-    const templateSlotDates = campaign.templateSlotDates || [];
     const templateSlotPayloads = Array.from({ length: 8 }, (_, slotIdx) => {
       const templateRef = templateRefs[slotIdx];
       const resolvedTemplate = resolveRegistryTemplateByReference(templateRef);
-      const templateId = resolvedTemplate?.serverId ?? null;
-
-      return {
-        templateId,
-        templateDate: templateSlotDates[slotIdx] ?? null
-      };
+      return resolvedTemplate?.serverId ?? null;
     });
 
     const dispatchTime = campaign.dispatchTime?.trim() || '';
@@ -1519,29 +1495,20 @@ interface RegistryCampaign {
     return {
       id: campaign.serverId ?? null,
       campaignName: campaign.name?.trim() || '',
-      campaignStartDate: campaign.startDate ? `${campaign.startDate}T00:00:00` : '',
       dispatchTime: dispatchTime.length === 5 ? `${dispatchTime}:00` : dispatchTime,
       customerSegmentTrigger: campaign.segment || '',
       initialStatus,
       operation: 'Send',
       campaignType: campaign.type || campaign.campaignType || 'Daily',
       channelType: mapRegistryChannelTypeToApi(campaign.channelType),
-      templateSlot1: templateSlotPayloads[0].templateId,
-      templateSlot1Date: templateSlotPayloads[0].templateDate,
-      templateSlot2: templateSlotPayloads[1].templateId,
-      templateSlot2Date: templateSlotPayloads[1].templateDate,
-      templateSlot3: templateSlotPayloads[2].templateId,
-      templateSlot3Date: templateSlotPayloads[2].templateDate,
-      templateSlot4: templateSlotPayloads[3].templateId,
-      templateSlot4Date: templateSlotPayloads[3].templateDate,
-      templateSlot5: templateSlotPayloads[4].templateId,
-      templateSlot5Date: templateSlotPayloads[4].templateDate,
-      templateSlot6: templateSlotPayloads[5].templateId,
-      templateSlot6Date: templateSlotPayloads[5].templateDate,
-      templateSlot7: templateSlotPayloads[6].templateId,
-      templateSlot7Date: templateSlotPayloads[6].templateDate,
-      templateSlot8: templateSlotPayloads[7].templateId,
-      templateSlot8Date: templateSlotPayloads[7].templateDate
+      templateSlot1: templateSlotPayloads[0],
+      templateSlot2: templateSlotPayloads[1],
+      templateSlot3: templateSlotPayloads[2],
+      templateSlot4: templateSlotPayloads[3],
+      templateSlot5: templateSlotPayloads[4],
+      templateSlot6: templateSlotPayloads[5],
+      templateSlot7: templateSlotPayloads[6],
+      templateSlot8: templateSlotPayloads[7]
     };
   };
 
@@ -1732,6 +1699,153 @@ interface RegistryCampaign {
 
         return normalizeTemplateText(left.id).localeCompare(normalizeTemplateText(right.id));
       });
+  };
+
+  const renderRegistryTemplateSlotPicker = (slotIdx: number) => {
+    const selectedTemplateValue = (registryForm.templates || [])[slotIdx] || '';
+    const selectedTemplate = resolveRegistryTemplateByReference(selectedTemplateValue);
+    const options = getRegistryTemplateOptionsForSlot(slotIdx);
+    const isOpen = openRegistryTemplateSlotIndex === slotIdx;
+    const hasSelection = Boolean(selectedTemplateValue);
+
+    const updateRegistryTemplateSlot = (nextValue: string) => {
+      const resolvedTemplate = resolveRegistryTemplateByReference(nextValue);
+      const resolvedTemplateId = parsePositiveNumericId(resolvedTemplate?.serverId);
+
+      setRegistryForm((prev) => {
+        const updatedTemplates = [...(prev.templates || Array(8).fill(''))];
+        updatedTemplates[slotIdx] = nextValue;
+
+        const updatedSlotIds = [...(prev.templateSlotIds || Array(8).fill(null))];
+        updatedSlotIds[slotIdx] = resolvedTemplateId;
+
+        return { ...prev, templates: updatedTemplates, templateSlotIds: updatedSlotIds };
+      });
+
+      if (registryErrors.templates) {
+        setRegistryErrors((prev) => ({ ...prev, templates: '' }));
+      }
+
+      setOpenRegistryTemplateSlotIndex(null);
+    };
+
+    const clearRegistryTemplateSlot = () => {
+      setRegistryForm((prev) => {
+        const updatedTemplates = [...(prev.templates || Array(8).fill(''))];
+        const updatedSlotIds = [...(prev.templateSlotIds || Array(8).fill(null))];
+        updatedTemplates[slotIdx] = '';
+        updatedSlotIds[slotIdx] = null;
+        return { ...prev, templates: updatedTemplates, templateSlotIds: updatedSlotIds };
+      });
+
+      if (registryErrors.templates) {
+        setRegistryErrors((prev) => ({ ...prev, templates: '' }));
+      }
+
+      setOpenRegistryTemplateSlotIndex(null);
+    };
+
+    return (
+      <div key={slotIdx} className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <label className="block text-[10px] font-bold text-gray-400">
+            Template - Slot {slotIdx + 1}
+          </label>
+        </div>
+
+        <div className="relative">
+          <button
+            type="button"
+            disabled={!registryForm.channelType || isLoadingRegistryTemplates || registryTemplateOptions.length === 0}
+            onClick={() => {
+              if (!registryForm.channelType || isLoadingRegistryTemplates || registryTemplateOptions.length === 0) {
+                return;
+              }
+
+              setOpenRegistryTemplateSlotIndex((current) => (current === slotIdx ? null : slotIdx));
+            }}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border-subtle bg-bg-viewport px-3 py-2 pr-10 text-left text-xs font-bold text-text-primary shadow-xxs transition-all hover:border-brand-primary/40 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span
+              className={`min-w-0 flex-1 truncate ${selectedTemplate ? 'text-text-primary' : 'text-text-secondary'}`}
+              title={selectedTemplate?.name || selectedTemplateValue || ''}
+            >
+              {selectedTemplate?.name || selectedTemplateValue || (registryForm.channelType ? 'Select Template' : 'Select channel type first')}
+            </span>
+
+            {!hasSelection && (
+              <ChevronDown className="h-4 w-4 shrink-0 text-text-secondary" />
+            )}
+          </button>
+
+          {hasSelection && (
+            <button
+              type="button"
+              onClick={clearRegistryTemplateSlot}
+              className="absolute right-2 top-1/2 z-10 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-border-subtle bg-bg-card text-text-secondary shadow-sm transition-colors hover:border-red-300 hover:text-red-600"
+              aria-label={`Clear selected template from slot ${slotIdx + 1}`}
+              title={`Clear selected template from slot ${slotIdx + 1}`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {isOpen && (
+            <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-border-subtle bg-bg-card shadow-xl">
+              <div className="max-h-64 overflow-y-auto p-1">
+                <button
+                  type="button"
+                  onClick={() => updateRegistryTemplateSlot('')}
+                  className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left text-xs font-medium text-text-secondary transition-colors hover:bg-brand-bg-active/60 hover:text-text-primary"
+                >
+                  <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">
+                    Select Template
+                  </span>
+                </button>
+
+                {options.length === 0 ? (
+                  <div className="px-3 py-3 text-xs font-medium text-text-secondary">
+                    No templates available.
+                  </div>
+                ) : (
+                  options.map((template) => {
+                    const optionValue = getRegistryTemplateSelectionKey(template);
+                    const optionIsSelected = optionValue === selectedTemplateValue;
+
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => updateRegistryTemplateSlot(optionValue)}
+                        className={`flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-brand-bg-active/60 ${
+                          optionIsSelected ? 'bg-brand-bg-active/50 text-brand-primary' : 'text-text-primary'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="whitespace-normal break-words font-semibold leading-snug">
+                            {template.name}
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-[10px] font-semibold text-text-secondary">
+                            <span>{template.type}</span>
+                            <span>•</span>
+                            <span>{template.status}</span>
+                          </div>
+                        </div>
+                        {optionIsSelected && (
+                          <span className="shrink-0 rounded-full border border-brand-primary/20 bg-brand-bg-active px-2 py-0.5 text-[10px] font-bold text-brand-primary">
+                            Selected
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // --- Handlers for Email/WhatsApp Settings ---
@@ -2366,22 +2480,10 @@ interface RegistryCampaign {
     }
   };
 
-  const getRegistrySlotDateValue = (slotIdx: number): string | null => {
-    const dateValues = buildRegistryTemplateSlotDates(registryForm.startDate || getTodayDateString(), registryForm.type || '');
-    return dateValues[slotIdx] ?? null;
-  };
-
-  const getSlotDateLabel = (slotIdx: number) => {
-    const slotDateValue = (registryForm.templateSlotDates || [])[slotIdx] || getRegistrySlotDateValue(slotIdx);
-    if (!slotDateValue) return '';
-
-    const formattedDate = formatApiDateLabel(slotDateValue);
-    return formattedDate ? ` (${formattedDate})` : '';
-  };
-
   // Registry campaign handlers
   const handleOpenRegistryModal = (campaign?: RegistryCampaign) => {
     setRegistryErrors({});
+    setOpenRegistryTemplateSlotIndex(null);
     if (campaign) {
       const resolvedTemplateSelections = getRegistryCampaignTemplateReferences(campaign)
         .map((templateRef) => resolveRegistryTemplateSelectionValue(templateRef))
@@ -2394,7 +2496,6 @@ interface RegistryCampaign {
         dispatchTime: extractTimeInputValue(campaign.dispatchTime),
         templates: [...resolvedTemplateSelections, ...Array(8).fill('')].slice(0, 8),
         templateSlotIds: [...(campaign.templateSlotIds || Array(8).fill(null)), ...Array(8).fill(null)].slice(0, 8),
-        templateSlotDates: campaign.templateSlotDates || Array(8).fill(null),
         segment: campaign.segment,
         status: campaign.status,
         type: (campaign.type || campaign.campaignType || 'Daily') as RegistryCampaign['type'],
@@ -2408,7 +2509,6 @@ interface RegistryCampaign {
         dispatchTime: '',
         templates: ['', '', '', '', '', '', '', ''],
         templateSlotIds: Array(8).fill(null),
-        templateSlotDates: Array(8).fill(null),
         segment: '',
         status: '',
         type: '',
@@ -2424,9 +2524,6 @@ interface RegistryCampaign {
     const errors: Record<string, string> = {};
     if (!registryForm.name || !registryForm.name.trim()) {
       errors.name = 'Campaign Name is required';
-    }
-    if (!registryForm.startDate) {
-      errors.startDate = 'Campaign Start Date is required';
     }
     if (!registryForm.dispatchTime) {
       errors.dispatchTime = 'Dispatch Time is required';
@@ -2468,7 +2565,6 @@ interface RegistryCampaign {
 
     const nextRegistryId = selectedRegistryCampaign?.id || `AC-${String(registryCampaigns.length + 1).padStart(3, '0')}`;
     const campaignName = registryForm.name?.trim() || '';
-    const campaignStartDate = registryForm.startDate || '';
     const dispatchTime = registryForm.dispatchTime || '';
     const selectedType = registryForm.type as RegistryCampaign['type'];
     const selectedStatus = registryForm.status as RegistryCampaign['status'];
@@ -2490,11 +2586,11 @@ interface RegistryCampaign {
         return getTemplateBackendId(matchedTemplate);
       };
 
-      const buildSlotPayload = (slotIdx: number): { templateId: number | null; templateDate: string | null } => {
+      const buildSlotPayload = (slotIdx: number): number | null => {
         const selectedTemplateId = selectedTemplateIds[slotIdx];
         const storedTemplateId = selectedTemplateSlotIds[slotIdx];
         if (!selectedTemplateId) {
-          return { templateId: null, templateDate: null };
+          return null;
         }
 
         const serverId = parsePositiveNumericId(storedTemplateId) ?? resolveTemplateServerId(selectedTemplateId);
@@ -2502,44 +2598,27 @@ interface RegistryCampaign {
           throw new Error(`Template selected for Slot ${slotIdx + 1} does not have a backend id yet.`);
         }
 
-        const slotDate = getRegistrySlotDateValue(slotIdx);
-        if (!slotDate) {
-          throw new Error(`Unable to resolve the date for Slot ${slotIdx + 1}.`);
-        }
-
-        return {
-          templateId: serverId,
-          templateDate: slotDate
-        };
+        return serverId;
       };
 
       const slotPayloads = Array.from({ length: 8 }, (_, slotIdx) => buildSlotPayload(slotIdx));
       const requestPayload: CampaignAutomationSaveRequest = {
         id: selectedRegistryCampaign?.serverId ?? null,
         campaignName,
-        campaignStartDate: `${campaignStartDate}T00:00:00`,
         dispatchTime: dispatchTime.trim().length === 5 ? `${dispatchTime}:00` : dispatchTime,
         customerSegmentTrigger: selectedSegment,
         initialStatus: selectedStatus,
         operation: 'Send',
         campaignType: selectedType || 'Daily',
         channelType: mapRegistryChannelTypeToApi(selectedChannelType),
-        templateSlot1: slotPayloads[0].templateId,
-        templateSlot1Date: slotPayloads[0].templateDate,
-        templateSlot2: slotPayloads[1].templateId,
-        templateSlot2Date: slotPayloads[1].templateDate,
-        templateSlot3: slotPayloads[2].templateId,
-        templateSlot3Date: slotPayloads[2].templateDate,
-        templateSlot4: slotPayloads[3].templateId,
-        templateSlot4Date: slotPayloads[3].templateDate,
-        templateSlot5: slotPayloads[4].templateId,
-        templateSlot5Date: slotPayloads[4].templateDate,
-        templateSlot6: slotPayloads[5].templateId,
-        templateSlot6Date: slotPayloads[5].templateDate,
-        templateSlot7: slotPayloads[6].templateId,
-        templateSlot7Date: slotPayloads[6].templateDate,
-        templateSlot8: slotPayloads[7].templateId,
-        templateSlot8Date: slotPayloads[7].templateDate
+        templateSlot1: slotPayloads[0],
+        templateSlot2: slotPayloads[1],
+        templateSlot3: slotPayloads[2],
+        templateSlot4: slotPayloads[3],
+        templateSlot5: slotPayloads[4],
+        templateSlot6: slotPayloads[5],
+        templateSlot7: slotPayloads[6],
+        templateSlot8: slotPayloads[7]
       };
 
       const savedRecord = await saveCampaignAutomation(requestPayload);
@@ -2554,20 +2633,11 @@ interface RegistryCampaign {
         id: displayId,
         serverId: savedServerId,
         name: savedRecord.campaignName?.trim() || campaignName,
-        startDate: extractDateInputValue(savedRecord.campaignStartDate) || campaignStartDate,
+        startDate: extractDateInputValue(savedRecord.campaignStartDate) || selectedRegistryCampaign?.startDate || '',
         dispatchTime: extractTimeInputValue(savedRecord.dispatchTime || dispatchTime),
         templates: [...selectedTemplateIds, ...Array(8).fill('')].slice(0, 8),
-        templateSlotIds: slotPayloads.map((slot) => slot.templateId),
-        templateSlotDates: [
-          savedRecord.templateSlot1Date ?? slotPayloads[0].templateDate,
-          savedRecord.templateSlot2Date ?? slotPayloads[1].templateDate,
-          savedRecord.templateSlot3Date ?? slotPayloads[2].templateDate,
-          savedRecord.templateSlot4Date ?? slotPayloads[3].templateDate,
-          savedRecord.templateSlot5Date ?? slotPayloads[4].templateDate,
-          savedRecord.templateSlot6Date ?? slotPayloads[5].templateDate,
-          savedRecord.templateSlot7Date ?? slotPayloads[6].templateDate,
-          savedRecord.templateSlot8Date ?? slotPayloads[7].templateDate
-        ],
+        templateSlotIds: slotPayloads.map((slot) => slot),
+        templateSlotDates: selectedRegistryCampaign?.templateSlotDates || Array(8).fill(null),
         segment: (savedRecord.customerSegmentTrigger as RegistryCampaign['segment']) || selectedSegment,
         status: (savedRecord.initialStatus as RegistryCampaign['status']) || selectedStatus,
         type: selectedType || 'Daily',
@@ -4604,31 +4674,6 @@ interface RegistryCampaign {
                   )}
                 </div>
 
-                {/* Campaign Start Date */}
-                <div>
-                  <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Campaign Start Date</label>
-                  <input
-                    type="date"
-                    value={registryForm.startDate || ''}
-                    min={getTodayDateString()}
-                    onChange={(e) => {
-                      const nextStartDate = e.target.value;
-                      setRegistryForm(prev => ({
-                        ...prev,
-                        startDate: nextStartDate,
-                        templateSlotDates: buildRegistryTemplateSlotDates(nextStartDate, prev.type || '')
-                      }));
-                      if (registryErrors.startDate) setRegistryErrors(prev => ({ ...prev, startDate: '' }));
-                    }}
-                    className={`w-full text-xs font-bold bg-bg-viewport border ${
-                      registryErrors.startDate ? 'border-red-500 ring-1 ring-red-500' : 'border-border-subtle'
-                    } px-3.5 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-text-primary cursor-pointer`}
-                  />
-                  {registryErrors.startDate && (
-                    <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider mt-1 block">{registryErrors.startDate}</span>
-                  )}
-                </div>
-
                 {/* Dispatch Time */}
                 <div>
                   <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Dispatch Time</label>
@@ -4719,8 +4764,7 @@ interface RegistryCampaign {
                       const nextType = e.target.value as RegistryCampaign['type'];
                       setRegistryForm(prev => ({
                         ...prev,
-                        type: nextType,
-                        templateSlotDates: buildRegistryTemplateSlotDates(prev.startDate || getTodayDateString(), nextType)
+                        type: nextType
                       }));
                       if (registryErrors.type) setRegistryErrors(prev => ({ ...prev, type: '' }));
                     }}
@@ -4751,6 +4795,7 @@ interface RegistryCampaign {
                         templates: ['', '', '', '', '', '', '', '']
                       }));
                       setRegistryTemplateOptions([]);
+                      setOpenRegistryTemplateSlotIndex(null);
                       if (registryErrors.channelType) setRegistryErrors(prev => ({ ...prev, channelType: '' }));
                     }}
                     className={`w-full text-xs font-bold bg-bg-viewport border ${
@@ -4786,7 +4831,7 @@ interface RegistryCampaign {
                     <div key={slotIdx} className="space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <label className="block text-[10px] font-bold text-gray-400">
-                          Template - Slot {slotIdx + 1}{getSlotDateLabel(slotIdx)}
+                          Template - Slot {slotIdx + 1}
                         </label>
                         {(registryForm.templates || [])[slotIdx] && (
                           <button

@@ -39,7 +39,6 @@ export interface CampaignAutomationSaveRequest {
   id: number | null;
   shopDomain?: string;
   campaignName: string;
-  campaignStartDate: string;
   dispatchTime: string;
   customerSegmentTrigger: string;
   initialStatus: string;
@@ -47,21 +46,13 @@ export interface CampaignAutomationSaveRequest {
   campaignType: string;
   channelType: string;
   templateSlot1: number | null;
-  templateSlot1Date: string | null;
   templateSlot2: number | null;
-  templateSlot2Date: string | null;
   templateSlot3: number | null;
-  templateSlot3Date: string | null;
   templateSlot4: number | null;
-  templateSlot4Date: string | null;
   templateSlot5: number | null;
-  templateSlot5Date: string | null;
   templateSlot6: number | null;
-  templateSlot6Date: string | null;
   templateSlot7: number | null;
-  templateSlot7Date: string | null;
   templateSlot8: number | null;
-  templateSlot8Date: string | null;
 }
 
 export interface CampaignAutomationRequestOptions {
