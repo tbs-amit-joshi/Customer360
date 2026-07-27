@@ -150,9 +150,12 @@ interface ShopifyAbandonedCheckoutMoneyDto {
 interface ShopifyAbandonedCheckoutDto {
   id?: string | null;
   createdAt?: string | null;
+  completedAt?: string | null;
+  slotStatus?: string | null;
   subtotalPriceSet?: ShopifyAbandonedCheckoutMoneyDto | null;
   totalPriceSet?: ShopifyAbandonedCheckoutMoneyDto | null;
   lineItems?: ShopifyAbandonedCheckoutLineItemDto[] | null;
+  nextScheduledAt?: string | null;
   nextScheduleEmail?: string | null;
 }
 
@@ -1421,8 +1424,11 @@ const mapAbandonedCheckout = (checkout: ShopifyAbandonedCheckoutDto, index: numb
     variantPrices: variantPrices.length > 0 ? variantPrices : [null],
     price: subtotalAmount,
     qty: qty > 0 ? qty : lineItems.length || 0,
+    nextEmailScheduledAt: parseDateString(checkout.nextScheduledAt?.trim()) || parseDateString(checkout.nextScheduleEmail?.trim()) || '-',
     nextScheduleEmail: checkout.nextScheduleEmail?.trim() || '-',
-    abandonedAt: parseDateString(checkout.createdAt) || '-',
+    slotStatus: checkout.slotStatus?.trim() || '-',
+    completedAt: parseDateString(checkout.completedAt?.trim()) || '-',
+    abandonedAt: parseDateString(checkout.createdAt?.trim()) || '-',
     currencyCode
   };
 };
