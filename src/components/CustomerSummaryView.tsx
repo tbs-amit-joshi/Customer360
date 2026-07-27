@@ -4966,19 +4966,7 @@ const closePopupCustomer = () => {
                           No abandoned checkout records found for this customer.
                         </div>
                       ) : (
-                        <table className="w-full min-w-[1480px] text-left border-collapse table-fixed">
-                          <colgroup>
-                            <col className="w-[120px]" />
-                            <col className="w-[220px]" />
-                            <col className="w-[180px]" />
-                            <col className="w-[150px]" />
-                            <col className="w-[130px]" />
-                            <col className="w-[110px]" />
-                            <col className="w-[70px]" />
-                            <col className="w-[140px]" />
-                            <col className="w-[130px]" />
-                            <col className="w-[130px]" />
-                          </colgroup>
+                        <table className="w-full min-w-max text-left border-collapse table-auto">
                           <thead>
                             <tr className="bg-[#B9D7FC] text-slate-900 text-[11px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Checkout ID</span></th>
@@ -4988,7 +4976,9 @@ const closePopupCustomer = () => {
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Variant Price</span></th>
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Price</span></th>
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap text-center leading-tight"><span className="block truncate">Qty</span></th>
-                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Next Email Scheduled At</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight text-[10px] text-center">
+                                <span className="block whitespace-nowrap">Next Email Scheduled At</span>
+                              </th>
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Slot Status</span></th>
                               <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Abandoned At</span></th>
                             </tr>
