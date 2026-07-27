@@ -124,7 +124,10 @@ export interface CustomerAbandonedCheckout {
   variantPrices: Array<number | null>;
   price: number;
   qty: number;
+  nextEmailScheduledAt?: string;
   nextScheduleEmail?: string;
+  slotStatus?: string;
+  completedAt?: string;
   abandonedAt: string;
   currencyCode?: string;
 }

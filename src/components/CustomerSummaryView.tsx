@@ -686,6 +686,33 @@ function renderDeliveryStatusCell(
   );
 }
 
+function renderCheckoutStatusCell(
+  completedAt?: string | null,
+  align: 'left' | 'center' = 'left'
+) {
+  const trimmed = completedAt?.trim() || '';
+  const hasCompletedAt = Boolean(trimmed) && trimmed !== '-';
+  const statusLabel = hasCompletedAt ? 'Completed' : 'Pending';
+  const statusDate = hasCompletedAt ? trimmed.split('T')[0] : '-';
+  const statusClass = hasCompletedAt
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : 'bg-amber-50 text-amber-700 border-amber-200';
+  const dateSlotClass = hasCompletedAt
+    ? 'min-w-[88px] inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[9px] font-semibold text-slate-600 shadow-xxs whitespace-nowrap font-mono'
+    : 'min-w-[88px] inline-flex items-center justify-center px-2.5 py-1 text-[9px] font-semibold text-slate-500 whitespace-nowrap font-mono';
+
+  return (
+    <div className={`grid w-full grid-cols-[auto_minmax(88px,1fr)] items-center gap-2 whitespace-nowrap ${align === 'center' ? 'mx-auto' : ''}`}>
+      <span className={`inline-flex shrink-0 items-center gap-1 px-2.5 py-1 rounded-full text-[8px] font-bold uppercase tracking-wider border shadow-xxs whitespace-nowrap ${statusClass}`}>
+        <span>{statusLabel}</span>
+      </span>
+      <span className={`justify-self-end ${dateSlotClass}`}>
+        {statusDate}
+      </span>
+    </div>
+  );
+}
+
 interface CustomerSegmentVisual {
   className: string;
   icon: React.ReactNode;
@@ -4836,26 +4863,26 @@ const closePopupCustomer = () => {
 
         return (
           <div 
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-all"
+            className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto"
             onClick={closePopupCustomer}
           >
             {/* Modal Box */}
             <div 
-              className="bg-bg-card rounded-3xl border border-border-subtle/80 shadow-[0_24px_80px_rgba(15,23,42,0.18)] w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-bg-card rounded-2xl sm:rounded-3xl border border-border-subtle/80 shadow-[0_24px_80px_rgba(15,23,42,0.18)] w-full max-w-[96vw] xl:max-w-6xl 2xl:max-w-7xl overflow-hidden flex flex-col min-h-0 max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)]"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header section (matching image 2) */}
-              <div className="p-6 pb-4 flex items-start justify-between border-b border-border-subtle/70 bg-white">
-                <div>
+              <div className="p-4 sm:p-6 pb-4 sm:pb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-border-subtle/70 bg-white">
+                <div className="min-w-0">
                   <div>
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <h2 className="text-lg font-extrabold text-text-primary tracking-tight">{popupDisplayName}</h2>
                       <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 border rounded-md tracking-wider ${popupSegmentVisual.className}`}>
                         {popupSegmentVisual.icon}
                         <span>{popupSegmentVisual.label}</span>
                       </span>
                     </div>
-                    <div className="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <div className="text-xs text-text-secondary mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 leading-5">
                       <span className="flex items-center gap-1">
                         <Mail className="w-3.5 h-3.5 text-[#4280ce]" />
                         <span className="hover:underline">{popupCustomer.email}</span>
@@ -4879,14 +4906,14 @@ const closePopupCustomer = () => {
               </div>
 
               {popupViewMode === 'full' && (
-                <div className="px-6 flex gap-6 border-b border-border-subtle/70 bg-white text-sm">
+                <div className="px-4 sm:px-6 py-2 sm:py-0 flex flex-wrap gap-2 sm:gap-6 border-b border-border-subtle/70 bg-white text-sm">
                   {/* Abandoned Checkout Tab */}
                   <button
                     onClick={() => setPopupActiveTab('abandoned')}
-                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                    className={`py-2.5 px-3 rounded-full border transition-all duration-150 cursor-pointer focus:outline-none flex items-center gap-2 ${
                       popupActiveTab === 'abandoned'
-                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                        ? 'border-[#4280ce]/20 bg-[#4280ce]/10 text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium hover:bg-slate-50'
                     }`}
                   >
                     <ShoppingBag className="w-4 h-4 text-[#ff5a67]" />
@@ -4896,10 +4923,10 @@ const closePopupCustomer = () => {
                   {/* Refund Status Tab */}
                   <button
                     onClick={() => setPopupActiveTab('refunds')}
-                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                    className={`py-2.5 px-3 rounded-full border transition-all duration-150 cursor-pointer focus:outline-none flex items-center gap-2 ${
                       popupActiveTab === 'refunds'
-                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                        ? 'border-[#4280ce]/20 bg-[#4280ce]/10 text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium hover:bg-slate-50'
                     }`}
                   >
                     <RefreshCw className="w-4 h-4 text-emerald-500" />
@@ -4909,10 +4936,10 @@ const closePopupCustomer = () => {
                   {/* Applied Discount Tab */}
                   <button
                     onClick={() => setPopupActiveTab('discounts')}
-                    className={`py-3 flex items-center gap-2 border-b-2 transition-all duration-150 cursor-pointer focus:outline-none ${
+                    className={`py-2.5 px-3 rounded-full border transition-all duration-150 cursor-pointer focus:outline-none flex items-center gap-2 ${
                       popupActiveTab === 'discounts'
-                        ? 'border-[#4280ce] text-[#4280ce] font-bold'
-                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium'
+                        ? 'border-[#4280ce]/20 bg-[#4280ce]/10 text-[#4280ce] font-bold'
+                        : 'border-transparent text-text-secondary hover:text-text-primary font-medium hover:bg-slate-50'
                     }`}
                   >
                     <Ticket className="w-4 h-4 text-[#8b5cf6]" />
@@ -4922,34 +4949,38 @@ const closePopupCustomer = () => {
               )}
 
               {/* Content Grid Area (Matching columns, styling, and data fields in Image 2 & 3) */}
-          <div className="flex-1 p-6 min-h-[300px]">
+          <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/40 px-4 py-4 sm:px-6 sm:py-6">
                 {popupActiveTab === 'abandoned' && (
-                  <div className="bg-white border border-gray-300 rounded-xl overflow-hidden shadow-xs">
-                    <div className="overflow-x-auto">
+                  <div className="bg-white border border-gray-300 rounded-2xl overflow-hidden shadow-xs">
+                    <div className="hidden 2xl:block overflow-x-auto">
                       {isAbandonedCheckoutsLoading ? (
                         <div className="min-h-[180px] flex items-center justify-center">
                           <CustomerDataLoader overlay={false} />
                         </div>
                       ) : abandonedCheckoutsError ? (
-                          <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium px-4 text-center">
                           No abandoned checkout records found for this customer.
                         </div>
                       ) : abandonedCheckoutRows.length === 0 ? (
-                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium">
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium px-4 text-center">
                           No abandoned checkout records found for this customer.
                         </div>
                       ) : (
-                        <table className="w-full min-w-[1120px] text-left border-collapse table-fixed">
+                        <table className="w-full min-w-max text-left border-collapse table-auto">
                           <thead>
-                            <tr className="bg-[#B9D7FC] text-slate-900 text-[12px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[13%]">Checkout ID</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[18%]">Product Name</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[12%]">Variant</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[12%]">Variant Price</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[10%]">Price</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap text-center sm:text-left w-[6%]">Qty</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[17%]">Next Schedule Email</th>
-                              <th className="py-2.5 px-3.5 font-extrabold border-r border-gray-300 whitespace-nowrap w-[12%]">Abandoned At</th>
+                            <tr className="bg-[#B9D7FC] text-slate-900 text-[11px] font-extrabold border-b border-gray-300 uppercase tracking-wider">
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Checkout ID</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Product Name</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Checkout Status</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Variant</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Variant Price</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Price</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap text-center leading-tight"><span className="block truncate">Qty</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight text-[10px] text-center">
+                                <span className="block whitespace-nowrap">Next Email Scheduled At</span>
+                              </th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Slot Status</span></th>
+                              <th className="py-2.5 px-3 font-extrabold border-r border-gray-300 whitespace-nowrap leading-tight"><span className="block truncate">Abandoned At</span></th>
                             </tr>
                           </thead>
                           <tbody className="bg-white">
@@ -4959,10 +4990,10 @@ const closePopupCustomer = () => {
 
                               return (
                                 <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors text-[13px] border-b border-gray-200 last:border-b-0">
-                                  <td className="py-2.5 px-3.5 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 font-mono font-bold text-gray-600 border-r border-gray-200 align-middle">
                                     {item.checkoutId}
                                   </td>
-                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 font-semibold text-gray-800 border-r border-gray-200 align-middle">
                                     <div className="flex flex-col gap-0.5">
                                       {Array.from({ length: lineCount }, (_, lineIdx) => (
                                         <span key={`${item.id}-product-${lineIdx}`} className="block truncate" title={item.productNames[lineIdx] || '-'}>
@@ -4971,7 +5002,10 @@ const closePopupCustomer = () => {
                                       ))}
                                     </div>
                                   </td>
-                                  <td className="py-2.5 px-3.5 font-semibold text-gray-800 border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 text-gray-600 font-medium border-r border-gray-200 align-middle">
+                                    {renderCheckoutStatusCell(item.completedAt, 'center')}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-semibold text-gray-800 border-r border-gray-200 align-middle">
                                     <div className="flex flex-col gap-0.5">
                                       {Array.from({ length: lineCount }, (_, lineIdx) => (
                                         <span key={`${item.id}-variant-${lineIdx}`} className="block truncate" title={item.variantTitles[lineIdx] || '-'}>
@@ -4980,7 +5014,7 @@ const closePopupCustomer = () => {
                                       ))}
                                     </div>
                                   </td>
-                                  <td className="py-2.5 px-3.5 font-mono font-semibold text-gray-900 border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 font-mono font-semibold text-gray-900 border-r border-gray-200 align-middle">
                                     <div className="flex flex-col gap-0.5">
                                       {Array.from({ length: lineCount }, (_, lineIdx) => {
                                         const variantPrice = item.variantPrices[lineIdx];
@@ -4992,18 +5026,23 @@ const closePopupCustomer = () => {
                                       })}
                                     </div>
                                   </td>
-                                  <td className="py-2.5 px-3.5 font-mono text-gray-900 font-semibold border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 font-mono text-gray-900 font-semibold border-r border-gray-200 align-middle">
                                     {formatCurrencyAmount(item.price, rowCurrency)}
                                   </td>
-                                  <td className="py-2.5 px-3.5 font-mono text-gray-900 border-r border-gray-200 align-middle text-center sm:text-left">
+                                  <td className="py-2.5 px-3 font-mono text-gray-900 border-r border-gray-200 align-middle text-center sm:text-left">
                                     {item.qty}
                                   </td>
-                                  <td className="py-2.5 px-3.5 text-gray-600 font-medium border-r border-gray-200 align-middle whitespace-nowrap">
-                                    <span className="block truncate" title={item.nextScheduleEmail || '-'}>
-                                      {item.nextScheduleEmail || '-'}
+                                  <td className="py-2.5 px-3 text-gray-600 font-medium border-r border-gray-200 align-middle whitespace-nowrap">
+                                    <span className="block truncate" title={item.nextEmailScheduledAt || '-'}>
+                                      {item.nextEmailScheduledAt || '-'}
                                     </span>
                                   </td>
-                                  <td className="py-2.5 px-3.5 text-gray-600 font-medium border-r border-gray-200 align-middle">
+                                  <td className="py-2.5 px-3 text-gray-600 font-medium border-r border-gray-200 align-middle whitespace-nowrap">
+                                    <span className="block truncate" title={item.slotStatus || '-'}>
+                                      {item.slotStatus || '-'}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-gray-600 font-medium border-r border-gray-200 align-middle">
                                     {item.abandonedAt}
                                   </td>
                                 </tr>
@@ -5011,6 +5050,110 @@ const closePopupCustomer = () => {
                             })}
                           </tbody>
                         </table>
+                      )}
+                    </div>
+
+                    <div className="2xl:hidden p-3 sm:p-4 space-y-3">
+                      {isAbandonedCheckoutsLoading ? (
+                        <div className="min-h-[180px] flex items-center justify-center">
+                          <CustomerDataLoader overlay={false} />
+                        </div>
+                      ) : abandonedCheckoutsError ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium text-center px-4">
+                          No abandoned checkout records found for this customer.
+                        </div>
+                      ) : abandonedCheckoutRows.length === 0 ? (
+                        <div className="min-h-[180px] flex items-center justify-center text-gray-500 text-sm font-medium text-center px-4">
+                          No abandoned checkout records found for this customer.
+                        </div>
+                      ) : (
+                        abandonedCheckoutPaginatedRows.map((item, idx) => {
+                          const rowCurrency = item.currencyCode || popupCustomer?.currencyCode;
+                          const lineCount = Math.max(item.productNames.length, item.variantTitles.length, item.variantPrices.length, 1);
+
+                          return (
+                            <div key={item.id || idx} className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                              <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-4 py-3">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Checkout ID</div>
+                                  <div className="mt-1 font-mono text-sm font-bold text-gray-800 break-all">{item.checkoutId}</div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Abandoned At</div>
+                                  <div className="mt-1 text-sm font-semibold text-gray-700">{item.abandonedAt || '-'}</div>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-100">
+                                <div className="bg-white px-4 py-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Price</div>
+                                  <div className="mt-1 font-mono text-sm font-bold text-gray-900">{formatCurrencyAmount(item.price, rowCurrency)}</div>
+                                </div>
+                                <div className="bg-white px-4 py-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Qty</div>
+                                  <div className="mt-1 font-mono text-sm font-bold text-gray-900">{item.qty}</div>
+                                </div>
+                                <div className="bg-white px-4 py-3">
+                                  <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Checkout Status</div>
+                                  <div className="mt-1">
+                                    {renderCheckoutStatusCell(item.completedAt, 'left')}
+                                  </div>
+                                </div>
+                                <div className="bg-white px-4 py-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Slot Status</div>
+                                  <div className="mt-1 text-sm font-semibold text-gray-700 break-words">{item.slotStatus || '-'}</div>
+                                </div>
+                              </div>
+
+                              <div className="px-4 py-4 space-y-4">
+                                <div>
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Product Name</div>
+                                  <div className="mt-2 space-y-1.5">
+                                    {Array.from({ length: lineCount }, (_, lineIdx) => (
+                                      <div key={`${item.id}-product-mobile-${lineIdx}`} className="text-sm font-semibold text-gray-800">
+                                        {item.productNames[lineIdx] || '-'}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Variant</div>
+                                    <div className="mt-2 space-y-1.5">
+                                      {Array.from({ length: lineCount }, (_, lineIdx) => (
+                                        <div key={`${item.id}-variant-mobile-${lineIdx}`} className="text-sm font-semibold text-gray-800">
+                                          {item.variantTitles[lineIdx] || '-'}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Variant Price</div>
+                                    <div className="mt-2 space-y-1.5">
+                                      {Array.from({ length: lineCount }, (_, lineIdx) => {
+                                        const variantPrice = item.variantPrices[lineIdx];
+                                        return (
+                                          <div key={`${item.id}-variant-price-mobile-${lineIdx}`} className="text-sm font-mono font-semibold text-gray-800">
+                                            {variantPrice !== null && variantPrice !== undefined ? formatCurrencyAmount(variantPrice, rowCurrency) : '-'}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Next Email Scheduled At</div>
+                                  <div className="mt-2 text-sm font-semibold text-gray-700 break-words">
+                                    {item.nextEmailScheduledAt || '-'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
 
@@ -5315,9 +5458,9 @@ const closePopupCustomer = () => {
                 )}
               </div>
               {/* Footer Section (matching image 2) */}
-              <div className="bg-slate-50/80 border-t border-gray-100 p-5 px-6 flex flex-col sm:flex-row items-center justify-end gap-3 text-xs">
+              <div className="flex-none bg-slate-50/80 border-t border-gray-100 p-4 sm:p-5 px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-end gap-3 text-xs">
                 {/* Last activity / login */}
-                <div className="text-[11px] text-gray-400 font-medium font-mono">
+                <div className="max-w-full text-[11px] text-gray-400 font-medium font-mono text-center sm:text-right break-words">
                   Last Login: {popupCustomer.lastLogin} • Last Order: {popupCustomer.lastOrderDate}
                 </div>
               </div>
