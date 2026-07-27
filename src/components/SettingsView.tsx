@@ -3254,9 +3254,7 @@ interface RegistryCampaign {
       {/* SECTION 2: Shopify Automated Customer Segmentation Rules */}
       {activeTab === 'segmentation' && (
         <div className="bg-bg-card border border-border-subtle/80 border-t-0 rounded-b-2xl rounded-t-none p-6 shadow-xxs space-y-6 transition-all duration-200 mt-0">
-          <div 
-            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4 select-none"
-          >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4 select-none">
             <div className="flex-1">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-base font-bold text-text-primary tracking-tight">
@@ -3270,21 +3268,19 @@ interface RegistryCampaign {
           </div>
 
           {isLoadingSegmentation && (
-            <div className="min-h-[180px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
+            <div className="min-h-[360px] flex items-center justify-center rounded-2xl border border-dashed border-border-subtle bg-bg-viewport/40">
               <CustomerDataLoader overlay={false} />
             </div>
           )}
 
-          <div className="space-y-6 pt-2 max-w-5xl mx-auto w-full">
+          <div className={`space-y-6 pt-2 max-w-5xl mx-auto w-full ${isLoadingSegmentation ? 'hidden' : ''}`}>
             <div className="flex flex-col gap-4">
-              {/* SEGMENTATION TRIGGER MODE */}
               <div className="space-y-2">
                 <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">
                   Segmentation Trigger Mode
                 </span>
                 <div className="flex items-center justify-between p-4 bg-bg-viewport border border-border-subtle rounded-xl min-h-[76px]">
                   <div className="flex items-center gap-3">
-                    {/* Nice custom toggle switch */}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setIsDynamicSegmentationOn(!isDynamicSegmentationOn); }}
@@ -3320,161 +3316,158 @@ interface RegistryCampaign {
                 </div>
               </div>
 
-              {!isDynamicSegmentationOn && (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-4">
-                    <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
-                      <div className="flex items-start justify-between gap-3 mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-text-primary tracking-tight">Total Spend Range</h3>
-                          <p className="text-xs text-text-secondary mt-1">
-                            Set the minimum spend required. Leave max spend blank for no upper limit.
-                          </p>
-                        </div>
+              <div className={`space-y-4 ${isDynamicSegmentationOn ? 'hidden' : ''}`}>
+                <div className="flex flex-col gap-4">
+                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Total Spend Range</h3>
+                        <p className="text-xs text-text-secondary mt-1">
+                          Set the minimum spend required. Leave max spend blank for no upper limit.
+                        </p>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-text-secondary uppercase">
-                            Min Spend
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={minSpend}
-                            onChange={(e) => {
-                              setMinSpend(formatSpendInputValue(e.target.value));
-                              if (segmentationFieldErrors.minSpend) {
-                                setSegmentationFieldErrors((prev) => ({ ...prev, minSpend: '', maxSpend: '' }));
-                              }
-                            }}
-                            placeholder="Enter min spend"
-                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                              segmentationFieldErrors.minSpend
-                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                            }`}
-                          />
-                          {segmentationFieldErrors.minSpend && (
-                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minSpend}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-text-secondary uppercase">
-                            Max Spend
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={maxSpend}
-                            onChange={(e) => {
-                              setMaxSpend(formatSpendInputValue(e.target.value));
-                              if (segmentationFieldErrors.maxSpend) {
-                                setSegmentationFieldErrors((prev) => ({ ...prev, maxSpend: '' }));
-                              }
-                            }}
-                            placeholder="Enter Max Spend"
-                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                              segmentationFieldErrors.maxSpend
-                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                            }`}
-                          />
-                          {segmentationFieldErrors.maxSpend && (
-                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxSpend}</p>
-                          )}
-                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Min Spend
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={minSpend}
+                          onChange={(e) => {
+                            setMinSpend(formatSpendInputValue(e.target.value));
+                            if (segmentationFieldErrors.minSpend) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, minSpend: '', maxSpend: '' }));
+                            }
+                          }}
+                          placeholder="Enter min spend"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.minSpend
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.minSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minSpend}</p>
+                        )}
                       </div>
-                    </section>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Max Spend
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={maxSpend}
+                          onChange={(e) => {
+                            setMaxSpend(formatSpendInputValue(e.target.value));
+                            if (segmentationFieldErrors.maxSpend) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, maxSpend: '' }));
+                            }
+                          }}
+                          placeholder="Enter Max Spend"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.maxSpend
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.maxSpend && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxSpend}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
 
-                    <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
-                      <div className="flex items-start justify-between gap-3 mb-4">
-                        <div>
-                          <h3 className="text-sm font-bold text-text-primary tracking-tight">Order Count Range</h3>
-                          <p className="text-xs text-text-secondary mt-1">
-                            Use whole numbers only. Leave max orders blank for no upper limit.
-                          </p>
-                        </div>
+                  <section className="rounded-2xl border border-border-subtle bg-white p-4 shadow-xxs">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-text-primary tracking-tight">Order Count Range</h3>
+                        <p className="text-xs text-text-secondary mt-1">
+                          Use whole numbers only. Leave max orders blank for no upper limit.
+                        </p>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-text-secondary uppercase">
-                            Min Orders
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={minOrderCount}
-                            onChange={(e) => {
-                              setMinOrderCount(sanitizeOrderCountInput(e.target.value));
-                              if (segmentationFieldErrors.minOrderCount) {
-                                setSegmentationFieldErrors((prev) => ({ ...prev, minOrderCount: '', maxOrderCount: '' }));
-                              }
-                            }}
-                            placeholder="Enter min orders"
-                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                              segmentationFieldErrors.minOrderCount
-                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                            }`}
-                          />
-                          {segmentationFieldErrors.minOrderCount && (
-                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minOrderCount}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-bold text-text-secondary uppercase">
-                            Max Orders
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={maxOrderCount}
-                            onChange={(e) => {
-                              setMaxOrderCount(sanitizeOrderCountInput(e.target.value));
-                              if (segmentationFieldErrors.maxOrderCount) {
-                                setSegmentationFieldErrors((prev) => ({ ...prev, maxOrderCount: '' }));
-                              }
-                            }}
-                            placeholder="Enter Max Orders"
-                            className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
-                              segmentationFieldErrors.maxOrderCount
-                                ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
-                                : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
-                            }`}
-                          />
-                          {segmentationFieldErrors.maxOrderCount && (
-                            <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxOrderCount}</p>
-                          )}
-                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Min Orders
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={minOrderCount}
+                          onChange={(e) => {
+                            setMinOrderCount(sanitizeOrderCountInput(e.target.value));
+                            if (segmentationFieldErrors.minOrderCount) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, minOrderCount: '', maxOrderCount: '' }));
+                            }
+                          }}
+                          placeholder="Enter min orders"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.minOrderCount
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.minOrderCount && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.minOrderCount}</p>
+                        )}
                       </div>
-                    </section>
-                  </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-text-secondary uppercase">
+                          Max Orders
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={maxOrderCount}
+                          onChange={(e) => {
+                            setMaxOrderCount(sanitizeOrderCountInput(e.target.value));
+                            if (segmentationFieldErrors.maxOrderCount) {
+                              setSegmentationFieldErrors((prev) => ({ ...prev, maxOrderCount: '' }));
+                            }
+                          }}
+                          placeholder="Enter Max Orders"
+                          className={`w-full px-3.5 py-2.5 bg-bg-viewport rounded-xl text-sm font-medium focus:outline-none focus:ring-2 placeholder-gray-400 text-text-primary ${
+                            segmentationFieldErrors.maxOrderCount
+                              ? 'border border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500/20'
+                              : 'border border-border-subtle focus:ring-brand-primary/20 focus:border-brand-primary'
+                          }`}
+                        />
+                        {segmentationFieldErrors.maxOrderCount && (
+                          <p className="text-[11px] font-medium text-red-600 leading-snug">{segmentationFieldErrors.maxOrderCount}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Bottom button actions */}
-            <div className="flex justify-end items-center gap-3 pt-4 border-t border-border-subtle">
-              <button
-                type="button"
-                disabled={isSavingSegmentation || isLoadingSegmentation}
-                onClick={handleClearSegmentationFields}
-                className="px-5 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer shadow-xxs disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                disabled={isSavingSegmentation || isLoadingSegmentation}
-                onClick={handleSaveSegmentationRules}
-                className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              >
-                {(isSavingSegmentation || isLoadingSegmentation) && <RefreshCw className="w-4 h-4 animate-spin" />}
-                {isLoadingSegmentation ? 'Loading...' : isSavingSegmentation ? 'Saving...' : 'Save'}
-              </button>
+              <div className="flex justify-end items-center gap-3 pt-4 border-t border-border-subtle">
+                <button
+                  type="button"
+                  disabled={isSavingSegmentation || isLoadingSegmentation}
+                  onClick={handleClearSegmentationFields}
+                  className="px-5 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[13px] font-bold hover:bg-slate-200 transition-colors cursor-pointer shadow-xxs disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingSegmentation || isLoadingSegmentation}
+                  onClick={handleSaveSegmentationRules}
+                  className="px-5 py-2.5 bg-[#B9D7FC] hover:bg-[#9cbdf0] text-slate-900 border border-[#96bae6] rounded-xl text-[13px] font-bold transition-all cursor-pointer shadow-xxs disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                >
+                  {(isSavingSegmentation || isLoadingSegmentation) && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  {isLoadingSegmentation ? 'Loading...' : isSavingSegmentation ? 'Saving...' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
-          </div>
+        </div>
       )}
 
       {/* SECTION 3: Campaign Templates */}
@@ -3750,8 +3743,8 @@ interface RegistryCampaign {
               <tbody className="bg-white">
                 {isLoadingRegistryCampaigns ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-text-secondary font-bold text-[13px] border-b border-gray-200">
-                      Loading campaigns...
+                    <td colSpan={6} className="px-4 py-8 border-b border-gray-200">
+                      <CustomerDataLoader overlay={false} />
                     </td>
                   </tr>
                 ) : registryCampaigns.length === 0 ? (
@@ -3903,8 +3896,8 @@ interface RegistryCampaign {
 
           <div className="block md:hidden space-y-4">
             {isLoadingRegistryCampaigns ? (
-              <div className="p-8 text-center text-text-secondary font-bold text-[13px] border border-gray-200 rounded-xl bg-white shadow-xs">
-                Loading campaigns...
+              <div className="border border-gray-200 rounded-xl bg-white shadow-xs">
+                <CustomerDataLoader overlay={false} />
               </div>
             ) : registryCampaigns.length === 0 ? (
               <div className="p-8 text-center text-text-secondary font-bold text-[13px] border border-gray-200 rounded-xl bg-white shadow-xs">
